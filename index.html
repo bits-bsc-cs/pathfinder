@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BITS BSc CS — Curriculum Path Visualizer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="theme-light">
+
+  <!-- Mobile notice -->
+  <div id="mobile-banner" aria-live="polite">
+    This tool is best experienced on a desktop browser.
+  </div>
+
+  <div id="app">
+
+    <!-- ─── Left Pane: The View ──────────────────────────────────────── -->
+    <div id="view">
+
+      <div id="view-header">
+        <h1>BSc Computer Science</h1>
+        <p>BITS Pilani — Curriculum Path Visualizer</p>
+      </div>
+
+      <!-- Scrollable tree area -->
+      <div id="tree-container">
+        <div id="tree">
+
+          <!-- Trunk line (shown once tree starts) -->
+          <div id="trunk-line" style="display:none;" aria-hidden="true"></div>
+
+          <!-- Start state: single START button -->
+          <div id="start-node" style="display:flex;">
+            <div
+              class="node"
+              role="button"
+              tabindex="0"
+              data-action="start"
+              style="min-width:80px; text-align:center;"
+            >
+              <div class="node-title">START</div>
+            </div>
+          </div>
+
+          <!-- Semester blocks injected here by renderTree() -->
+
+        </div>
+      </div>
+
+      <!-- Sticky continue button at the bottom of the view pane -->
+      <div id="continue-btn-wrapper">
+        <span id="continue-hint"></span>
+        <button id="continue-btn" disabled>Continue</button>
+        <p class="continue-disabled-tooltip">Complete all required courses first.</p>
+      </div>
+
+    </div>
+    <!-- end #view -->
+
+
+    <!-- ─── Right Pane: The Sidebar ──────────────────────────────────── -->
+    <div id="sidebar">
+
+      <!-- Top bar: theme + reset -->
+      <div id="sidebar-topbar">
+
+        <div id="sidebar-topbar-left">
+          <button
+            id="theme-toggle-btn"
+            data-action="toggle-theme"
+            aria-label="Switch to dark theme"
+          >[ dark ]</button>
+        </div>
+
+        <div id="sidebar-topbar-right">
+          <!-- Default reset button -->
+          <button
+            id="reset-btn-initial"
+            data-action="reset-btn"
+          >Reset Path</button>
+
+          <!-- Inline confirmation (hidden by default) -->
+          <div id="reset-confirm" role="group" aria-label="Confirm reset">
+            <span class="text-sm text-muted">Are you sure?</span>
+            <button data-action="reset-confirm-yes">[ Yes, reset ]</button>
+            <button data-action="reset-confirm-cancel">[ Cancel ]</button>
+          </div>
+        </div>
+
+      </div>
+      <!-- end #sidebar-topbar -->
+
+      <!-- Scrollable content area -->
+      <div
+        id="sidebar-content"
+        role="region"
+        aria-label="Course information"
+        aria-live="polite"
+      >
+        <!-- Content rendered by render.js -->
+      </div>
+
+      <!-- Specialization tracker (visible only during Sems 7–8 Hons path) -->
+      <div id="sidebar-spec-tracker" aria-live="polite">
+        <!-- Rendered by renderSpecializationTracker() -->
+      </div>
+
+      <!-- Bottom bar: elective counter + SELECT button -->
+      <div id="sidebar-bottombar">
+        <span id="elective-counter"></span>
+        <button
+          id="select-btn"
+          data-action="select-course"
+        >Select</button>
+      </div>
+
+    </div>
+    <!-- end #sidebar -->
+
+  </div>
+  <!-- end #app -->
+
+  <!-- Script load order: data → state → render → app -->
+  <script src="data.js"></script>
+  <script src="state.js"></script>
+  <script src="render.js"></script>
+  <script src="app.js"></script>
+
+</body>
+</html>

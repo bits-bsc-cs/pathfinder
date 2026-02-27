@@ -1,0 +1,1199 @@
+/* style.css — BITS BSc CS Curriculum Path Visualizer
+   Section order (Rule 13):
+   1.  CSS custom properties
+   2.  Reset / base
+   3.  Layout
+   4.  Tree / trunk / branch
+   5.  Node types
+   6.  Grid picker
+   7.  Sidebar content
+   8.  Badges and tooltips
+   9.  Continue button
+   10. Utility classes
+   11. Animations / transitions
+*/
+
+/* ─── 1. CSS Custom Properties ──────────────────────────────────────────────── */
+
+:root {
+  --color-bg:               #ffffff;
+  --color-ink:              #000000;
+  --color-ink-muted:        #555555;
+  --color-ink-faint:        #aaaaaa;
+  --color-accent-positive:  #2a7a2a;
+  --color-accent-negative:  #cc0000;
+  --color-accent-locked:    #888888;
+
+  --line-trunk:  3px;
+  --line-branch: 1.5px;
+  --line-sub:    1px;
+
+  --spacing-xs:  4px;
+  --spacing-sm:  8px;
+  --spacing-md:  16px;
+  --spacing-lg:  24px;
+  --spacing-xl:  40px;
+
+  --font-size-sm:   0.75rem;
+  --font-size-base: 0.875rem;
+  --font-size-md:   1rem;
+  --font-size-lg:   1.25rem;
+  --font-size-xl:   1.5rem;
+
+  --sidebar-width: 35%;
+  --view-width:    65%;
+
+  --color-select-hover: limegreen;
+  --color-honours-underline: rgba(50, 205, 50, 0.5);
+}
+
+body.theme-dark {
+  --color-bg:               #1a1a1a;
+  --color-ink:              #e8e8e8;
+  --color-ink-muted:        #aaaaaa;
+  --color-ink-faint:        #555555;
+  --color-accent-positive:  #4caf50;
+  --color-accent-negative:  #ff5555;
+  --color-accent-locked:    #555555;
+}
+
+
+/* ─── 2. Reset / Base ────────────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+button {
+  background: none;
+  border: var(--line-sub) solid var(--color-ink);
+  color: var(--color-ink);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 1.1rem;
+  padding: 8px 18px;
+  transition: opacity 0.1s;
+}
+
+button:hover {
+  opacity: 0.7;
+}
+
+button:focus-visible {
+  outline: var(--line-branch) solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+a {
+  color: var(--color-ink);
+}
+
+/* Scrollbars — thin, Firefox + WebKit */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-faint) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-ink-faint);
+}
+
+/* Mobile banner */
+#mobile-banner {
+  display: none;
+  padding: var(--spacing-md);
+  border-bottom: var(--line-sub) solid var(--color-ink);
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  text-align: center;
+}
+
+@media (max-width: 767px) {
+  #mobile-banner {
+    display: block;
+  }
+}
+
+
+/* ─── 3. Layout ──────────────────────────────────────────────────────────────── */
+
+#app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Left view pane ── */
+#view {
+  width: var(--view-width);
+  display: flex;
+  flex-direction: column;
+  border-right: var(--line-branch) solid var(--color-ink);
+  overflow: hidden;
+  position: relative;
+}
+
+#view-header {
+  flex-shrink: 0;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: var(--line-sub) solid var(--color-ink-faint);
+}
+
+#view-header h1 {
+  font-size: var(--font-size-lg);
+  font-weight: normal;
+  letter-spacing: 0.04em;
+}
+
+#view-header p {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  margin-top: var(--spacing-xs);
+}
+
+#tree-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-lg) var(--spacing-xl);
+  padding-bottom: 80px; /* room for continue button */
+}
+
+/* ── Right sidebar pane ── */
+#sidebar {
+  width: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#sidebar-topbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: var(--line-sub) solid var(--color-ink-faint);
+  gap: var(--spacing-sm);
+}
+
+#sidebar-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+#sidebar-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+#sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-md);
+}
+
+#sidebar-spec-tracker {
+  flex-shrink: 0;
+  border-top: var(--line-sub) solid var(--color-ink-faint);
+  padding: var(--spacing-sm) var(--spacing-md);
+  display: none; /* shown only during Sems 7–8 */
+}
+
+#sidebar-spec-tracker.is-visible {
+  display: block;
+}
+
+#sidebar-bottombar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: var(--line-sub) solid var(--color-ink-faint);
+  min-height: 44px;
+}
+
+#elective-counter {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+}
+
+#select-btn {
+  padding: 10px 24px;
+  font-size: 1.1rem;
+  display: none; /* shown only when a selectable course is in sidebar */
+}
+
+#select-btn.is-visible {
+  display: inline-block;
+}
+
+#select-btn.is-visible:hover {
+  background-color: var(--color-select-hover);
+  color: #000000;
+  font-weight: bold;
+  text-decoration: underline;
+  opacity: 1;
+}
+
+
+/* ─── 4. Tree / Trunk / Branch ───────────────────────────────────────────────── */
+
+#tree {
+  position: relative;
+}
+
+/* Start state — no trunk, just the START button */
+#start-node {
+  display: flex;
+  justify-content: flex-start;
+  padding-left: var(--spacing-sm);
+}
+
+/* The trunk: vertical line running down the left of the tree area */
+#trunk-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--line-trunk);
+  bottom: 0;
+  background-color: var(--color-ink);
+}
+
+/* Fork visual: BSC terminal branch + Hons continuation */
+#fork-container {
+  position: relative;
+  margin-left: 0;
+  display: none;
+}
+
+#fork-container.is-visible {
+  display: block;
+}
+
+.fork-bsc-branch {
+  display: flex;
+  align-items: center;
+  margin-left: calc(var(--line-trunk) / 2);
+  padding: var(--spacing-sm) 0;
+}
+
+.fork-bsc-branch::before {
+  content: '';
+  display: block;
+  width: var(--spacing-xl);
+  height: var(--line-branch);
+  background-color: var(--color-ink);
+  flex-shrink: 0;
+  margin-right: var(--spacing-sm);
+}
+
+.fork-hons-indicator {
+  /* dashed extension of the trunk indicating Hons path above the fork */
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  width: var(--line-trunk);
+  height: var(--spacing-lg);
+  background: repeating-linear-gradient(
+    to top,
+    var(--color-ink) 0px,
+    var(--color-ink) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+/* Each semester block */
+.semester-block {
+  position: relative;
+  margin-bottom: 80px;
+  padding-left: var(--spacing-xl);
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+}
+
+.semester-block.is-revealed {
+  max-height: none;
+  opacity: 1;
+}
+
+/* Horizontal connector from trunk to semester label */
+.semester-block::before {
+  content: '';
+  position: absolute;
+  top: 12px; /* centers on the semester label node */
+  left: 0;
+  width: var(--spacing-xl);
+  height: var(--line-branch);
+  background-color: var(--color-ink);
+}
+
+/* Sub-trunk: vertical line inside the semester block */
+.semester-subtree {
+  position: relative;
+  padding-left: var(--spacing-xl);
+  border-left: var(--line-sub) solid var(--color-ink);
+}
+
+/* Individual course connector */
+.course-row {
+  position: relative;
+  margin-bottom: var(--spacing-sm);
+}
+
+.course-row::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: calc(-1 * var(--spacing-xl));
+  width: var(--spacing-xl);
+  height: var(--line-sub);
+  background-color: var(--color-ink);
+  transform: translateY(-50%);
+}
+
+/* For the last item — prevent the sub-trunk from extending past it */
+.semester-subtree > .course-row:last-child {
+  /* no special treatment needed; overflow:hidden on .semester-block handles it */
+}
+
+
+/* ─── 5. Node Types ──────────────────────────────────────────────────────────── */
+
+/* ── Semester label node ── */
+.semester-label-node {
+  display: inline-flex;
+  flex-direction: column;
+  border: var(--line-branch) solid var(--color-ink);
+  padding: 8px 20px;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: var(--spacing-md);
+}
+
+.semester-label-node:focus-visible {
+  outline: var(--line-branch) solid var(--color-ink);
+  outline-offset: 3px;
+}
+
+.semester-label-node .sem-label {
+  font-size: 1.15rem;
+  letter-spacing: 0.05em;
+}
+
+.semester-label-node .sem-units {
+  font-size: var(--font-size-base);
+  color: var(--color-ink-muted);
+}
+
+/* ── Fixed / mandatory course node ── */
+.node {
+  border: var(--line-sub) solid var(--color-ink);
+  padding: 8px 14px;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  display: inline-block;
+  min-width: 260px;
+  max-width: 380px;
+}
+
+.node:focus-visible {
+  outline: var(--line-branch) solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+.node-title {
+  font-size: 0.95rem;
+  font-weight: bold;
+  line-height: 1.3;
+}
+
+.node-meta {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  margin-top: 2px;
+}
+
+/* ── Optional / Elective slot node (unfilled) ── */
+.node.node-slot {
+  border-style: dashed;
+  color: var(--color-ink-muted);
+}
+
+.node.node-slot .node-title {
+  font-weight: normal;
+}
+
+.node.node-slot .node-pick-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-faint);
+  margin-top: 2px;
+}
+
+/* ── Optional / Elective slot node (filled) ── */
+.node.node-slot.is-filled {
+  border-style: solid;
+  color: var(--color-ink);
+}
+
+.node.node-slot.is-filled .node-title {
+  font-weight: bold;
+}
+
+.node.node-slot .node-slot-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  margin-top: 2px;
+  font-style: italic;
+}
+
+/* ── Project node (double border) ── */
+.node.node-project {
+  border: var(--line-sub) solid var(--color-ink);
+  outline: var(--line-sub) solid var(--color-ink);
+  outline-offset: 3px;
+}
+
+/* ── Terminal / End node ── */
+.terminal-node {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  cursor: pointer;
+  user-select: none;
+  padding: var(--spacing-xs) 0;
+}
+
+.terminal-node:focus-visible {
+  outline: var(--line-branch) solid var(--color-ink);
+  outline-offset: 3px;
+}
+
+.terminal-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: var(--line-branch) solid var(--color-ink);
+  flex-shrink: 0;
+}
+
+.terminal-dot.is-active {
+  background-color: var(--color-ink);
+}
+
+.terminal-label {
+  font-size: var(--font-size-base);
+}
+
+/* ── Node active (grid open) state ── */
+.node.is-active-grid {
+  outline: var(--line-branch) solid var(--color-ink);
+  outline-offset: 3px;
+}
+
+/* ── Locked slot tooltip trigger ── */
+.node.is-locked {
+  cursor: default;
+  color: var(--color-accent-locked);
+  border-color: var(--color-accent-locked);
+}
+
+
+/* ─── 6. Grid Picker ─────────────────────────────────────────────────────────── */
+
+.grid-picker {
+  margin-top: var(--spacing-md);
+  margin-left: calc(-1 * var(--spacing-xl) + var(--line-sub));
+  padding: var(--spacing-md);
+  border: var(--line-sub) solid var(--color-ink-faint);
+  opacity: 0;
+}
+
+.grid-picker.is-open {
+  opacity: 1;
+}
+
+/* Help text shown at the top of every grid */
+.grid-help-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  font-style: italic;
+  margin-bottom: var(--spacing-sm);
+}
+
+/* Filter tabs */
+.grid-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-md);
+}
+
+.grid-tab {
+  border: var(--line-sub) solid var(--color-ink-muted);
+  padding: 2px var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  color: var(--color-ink-muted);
+  background: none;
+  transition: color 0.1s, border-color 0.1s;
+}
+
+.grid-tab:hover {
+  color: var(--color-ink);
+  border-color: var(--color-ink);
+  opacity: 1;
+}
+
+.grid-tab.is-active {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
+}
+
+/* Cards grid */
+.grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--spacing-sm);
+}
+
+/* Individual grid card */
+.grid-card {
+  border: var(--line-sub) solid var(--color-ink);
+  padding: 8px 14px;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+
+.grid-card:focus-visible {
+  outline: var(--line-branch) solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+.grid-card.is-selected {
+  outline: var(--line-branch) solid var(--color-ink);
+  outline-offset: 3px;
+}
+
+.grid-card.is-locked-prereq {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none; /* wrapping div still allows tooltip hover */
+}
+
+.grid-card.is-duplicate {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.grid-card-title {
+  font-size: 0.95rem;
+  font-weight: bold;
+  line-height: 1.3;
+}
+
+.grid-card-meta {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  margin-top: 2px;
+}
+
+/* Wrapper div that keeps pointer events alive for tooltip even when card is locked */
+.grid-card-wrapper {
+  position: relative;
+}
+
+
+/* ─── 7. Sidebar Content ─────────────────────────────────────────────────────── */
+
+/* ── Sidebar fade transition ── */
+#sidebar-content.is-fading {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+/* ── Welcome / start card ── */
+.sidebar-welcome h2 {
+  font-size: var(--font-size-lg);
+  font-weight: normal;
+  margin-bottom: var(--spacing-md);
+}
+
+.sidebar-welcome p {
+  font-size: var(--font-size-base);
+  color: var(--color-ink-muted);
+  line-height: 1.6;
+}
+
+/* ── Course info panel ── */
+.course-info-title {
+  font-size: var(--font-size-xl);
+  font-weight: normal;
+  line-height: 1.3;
+  margin-bottom: var(--spacing-md);
+}
+
+.course-info-divider {
+  border: none;
+  border-top: var(--line-sub) solid var(--color-ink-faint);
+  margin-bottom: var(--spacing-md);
+}
+
+.course-info-meta {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  margin-bottom: var(--spacing-md);
+}
+
+.course-info-description {
+  font-size: var(--font-size-base);
+  color: var(--color-ink-muted);
+  line-height: 1.6;
+  margin-bottom: var(--spacing-md);
+}
+
+.specialization-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  margin-bottom: var(--spacing-md);
+}
+
+.prereqs-section {
+  margin-top: var(--spacing-md);
+}
+
+.prereqs-section h3 {
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  margin-bottom: var(--spacing-xs);
+  letter-spacing: 0.04em;
+}
+
+.prereq-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
+.prereq-badge {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+}
+
+.prereq-badge.met {
+  color: var(--color-accent-positive);
+}
+
+.prereq-badge.unmet {
+  color: var(--color-accent-negative);
+}
+
+/* ── Semester overview panel ── */
+.sem-overview-header {
+  margin-bottom: var(--spacing-md);
+}
+
+.sem-overview-header h2 {
+  font-size: var(--font-size-lg);
+  font-weight: normal;
+}
+
+.sem-overview-header .sem-units-note {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  margin-top: var(--spacing-xs);
+}
+
+.sem-overview-section {
+  margin-bottom: var(--spacing-md);
+}
+
+.sem-overview-section h3 {
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--spacing-xs);
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+
+.sem-overview-item {
+  font-size: var(--font-size-sm);
+  padding: var(--spacing-xs) 0;
+  border-bottom: var(--line-sub) solid var(--color-ink-faint);
+  color: var(--color-ink-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.sem-overview-item.is-pending {
+  color: var(--color-ink-faint);
+  font-style: italic;
+}
+
+/* ── Grid prompt panel ── */
+.grid-prompt {
+  padding: var(--spacing-sm) 0;
+}
+
+.grid-prompt h2 {
+  font-size: var(--font-size-base);
+  font-weight: bold;
+  margin-bottom: var(--spacing-xs);
+}
+
+.grid-prompt p {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  line-height: 1.5;
+}
+
+/* ── Fork UI panel ── */
+.fork-ui h2 {
+  font-size: var(--font-size-lg);
+  font-weight: normal;
+  margin-bottom: var(--spacing-md);
+}
+
+.fork-option {
+  border: var(--line-sub) solid var(--color-ink-faint);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.fork-option h3 {
+  font-size: var(--font-size-base);
+  font-weight: bold;
+  margin-bottom: var(--spacing-xs);
+}
+
+.fork-option p {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  line-height: 1.5;
+  margin-bottom: var(--spacing-md);
+}
+
+.fork-option.is-chosen {
+  border-color: var(--color-ink);
+}
+
+.fork-option button {
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-md);
+}
+
+/* ── End card panel ── */
+.end-card h2 {
+  font-size: var(--font-size-base);
+  font-weight: normal;
+  color: var(--color-ink-muted);
+  margin-bottom: var(--spacing-sm);
+}
+
+.end-card .end-degree {
+  font-size: var(--font-size-xl);
+  font-weight: bold;
+  color: var(--color-ink);
+  margin-bottom: var(--spacing-lg);
+  line-height: 1.3;
+}
+
+.end-card-logo {
+  float: right;
+  width: 33%;
+  filter: grayscale(1);
+  margin-left: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.honours-highlight {
+  text-decoration: underline;
+  text-decoration-color: var(--color-honours-underline);
+  text-underline-offset: 3px;
+}
+
+.end-card-switch-btn {
+  display: inline-block;
+  margin-top: var(--spacing-lg);
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-color: var(--color-ink-faint);
+}
+
+.end-card-section {
+  margin-bottom: var(--spacing-md);
+}
+
+.end-card-section h3 {
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--spacing-xs);
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+
+.end-card-item {
+  font-size: var(--font-size-sm);
+  padding: var(--spacing-xs) 0;
+  border-bottom: var(--line-sub) solid var(--color-ink-faint);
+  color: var(--color-ink-muted);
+}
+
+.end-specialization {
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-md);
+  border: var(--line-sub) solid var(--color-accent-positive);
+  color: var(--color-accent-positive);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+/* ── Reset confirmation inline UI ── */
+#reset-confirm {
+  display: none;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+#reset-confirm.is-visible {
+  display: flex;
+}
+
+#reset-btn-initial {
+  /* default state */
+}
+
+#reset-btn-initial.is-hidden {
+  display: none;
+}
+
+
+/* ─── 8. Badges and Tooltips ─────────────────────────────────────────────────── */
+
+.prereq-badge-inline {
+  display: inline-block;
+  font-size: var(--font-size-sm);
+  margin-right: 2px;
+}
+
+.prereq-badge-inline.met {
+  color: var(--color-accent-positive);
+}
+
+.prereq-badge-inline.unmet {
+  color: var(--color-accent-negative);
+}
+
+/* Node-level prereq badge rows (below the node) */
+.node-badges {
+  margin-top: 3px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+
+.node-badge {
+  font-size: var(--font-size-sm);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.node-badge .badge-mark {
+  font-weight: bold;
+}
+
+.node-badge.met .badge-mark {
+  color: var(--color-accent-positive);
+}
+
+.node-badge.unmet .badge-mark {
+  color: var(--color-accent-negative);
+}
+
+.node-badge .badge-text {
+  color: var(--color-ink-muted);
+}
+
+/* Tooltip container */
+.tooltip-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.tooltip-box {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 180px;
+  max-width: 260px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: var(--line-sub) solid var(--color-ink-faint);
+  background-color: var(--color-bg);
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 100;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.tooltip-wrapper:hover .tooltip-box,
+.tooltip-wrapper:focus-within .tooltip-box {
+  opacity: 1;
+}
+
+
+/* ─── 9. Continue Button ─────────────────────────────────────────────────────── */
+
+#continue-btn-wrapper {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-top: var(--line-sub) solid var(--color-ink-faint);
+  background-color: var(--color-bg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  visibility: hidden;
+}
+
+#continue-btn-wrapper.is-visible {
+  visibility: visible;
+}
+
+.continue-disabled-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: var(--spacing-lg);
+  background-color: var(--color-bg);
+  border: var(--line-sub) solid var(--color-ink-faint);
+  color: var(--color-ink);
+  font-size: 1rem;
+  padding: var(--spacing-sm) var(--spacing-md);
+  pointer-events: none;
+  opacity: 0;
+  white-space: nowrap;
+  z-index: 50;
+  transition: opacity 0.15s ease;
+}
+
+#continue-btn-wrapper[data-disabled="true"]:hover .continue-disabled-tooltip {
+  opacity: 1;
+}
+
+#continue-btn {
+  padding: 10px 28px;
+  font-size: 1.1rem;
+  border-width: var(--line-sub);
+  flex-shrink: 0;
+}
+
+#continue-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: var(--color-ink-faint);
+  color: var(--color-ink-faint);
+}
+
+#continue-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  flex: 1;
+}
+
+
+/* ─── 10. Utility Classes ────────────────────────────────────────────────────── */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.text-muted {
+  color: var(--color-ink-muted);
+}
+
+.text-faint {
+  color: var(--color-ink-faint);
+}
+
+.text-positive {
+  color: var(--color-accent-positive);
+}
+
+.text-negative {
+  color: var(--color-accent-negative);
+}
+
+.text-sm {
+  font-size: var(--font-size-sm);
+}
+
+.mt-sm { margin-top: var(--spacing-sm); }
+.mt-md { margin-top: var(--spacing-md); }
+.mt-lg { margin-top: var(--spacing-lg); }
+
+.mb-sm { margin-bottom: var(--spacing-sm); }
+.mb-md { margin-bottom: var(--spacing-md); }
+
+/* Specialization tracker row */
+.spec-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-size-sm);
+}
+
+.spec-row-label {
+  width: 80px;
+  flex-shrink: 0;
+  color: var(--color-ink-muted);
+}
+
+.spec-progress-bar {
+  display: flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.spec-bar-segment {
+  width: 14px;
+  height: 10px;
+  border: var(--line-sub) solid var(--color-ink-muted);
+}
+
+.spec-bar-segment.filled {
+  background-color: var(--color-ink);
+}
+
+.spec-row.is-achieved .spec-row-label,
+.spec-row.is-achieved .spec-count {
+  color: var(--color-accent-positive);
+}
+
+.spec-row.is-achieved .spec-bar-segment {
+  border-color: var(--color-accent-positive);
+}
+
+.spec-row.is-achieved .spec-bar-segment.filled {
+  background-color: var(--color-accent-positive);
+}
+
+.spec-count {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-sm);
+}
+
+.spec-achieved-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-accent-positive);
+  margin-left: var(--spacing-xs);
+}
+
+#sidebar-spec-tracker h4 {
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--spacing-sm);
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+
+
+/* ─── 11. Animations / Transitions ──────────────────────────────────────────── */
+
+/* Semester block reveal: max-height + opacity transition */
+.semester-block {
+  transition: max-height 0.3s ease, opacity 0.3s ease;
+}
+
+/* For already-revealed semesters (no animation): add immediately, skip transition */
+.semester-block.no-animate {
+  transition: none;
+}
+
+/* Individual course node fade-in (staggered via inline transition-delay) */
+.node,
+.terminal-node {
+  transition: opacity 0.2s ease;
+}
+
+/* Sidebar content swap */
+#sidebar-content {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* Grid picker open/close */
+.grid-picker {
+  transition: opacity 0.2s ease;
+}
+
+/* Tooltip */
+.tooltip-box {
+  transition: opacity 0.1s ease;
+}
+
+/* Styled parts of a missing-prereq tooltip */
+.tooltip-missing-label {
+  text-decoration: underline;
+}
+
+.tooltip-missing-courses {
+  color: var(--color-accent-negative);
+}
+
+/* Theme toggle transition on body (bg + text) already declared in body rule above */
