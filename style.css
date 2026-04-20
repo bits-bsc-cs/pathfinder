@@ -162,6 +162,22 @@ a {
   flex-shrink: 0;
   padding: var(--spacing-md) var(--spacing-lg);
   border-bottom: var(--line-sub) solid var(--color-ink-faint);
+  position: relative;
+}
+
+#view-source-link {
+  position: absolute;
+  right: var(--spacing-lg);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+#view-source-link:hover {
+  color: var(--color-ink);
 }
 
 #view-header h1 {
