@@ -1,427 +1,441 @@
 // app.js — event wiring and application logic
 
 function initApp() {
-  loadState();
-  applyTheme();
-  renderApp();
-  attachEventListeners();
+	loadState();
+	applyTheme();
+	renderApp();
+	attachEventListeners();
+	updateThemeButton();
 }
 
 function attachEventListeners() {
-  const view = document.getElementById('view');
-  if (view) {
-    view.addEventListener('click', handleViewClick);
-    view.addEventListener('dblclick', handleViewDblClick);
-    view.addEventListener('keydown', handleViewKeydown);
-  }
+	const header = document.getElementById("app-header");
+	if (header) header.addEventListener("click", handleHeaderClick);
 
-  const sidebar = document.getElementById('sidebar');
-  if (sidebar) {
-    sidebar.addEventListener('click', handleSidebarClick);
-  }
+	const page = document.getElementById("page");
+	if (page) {
+		page.addEventListener("click", handlePageClick);
+		page.addEventListener("keydown", handlePageKeydown);
+	}
 
-  const continueBtn = document.getElementById('continue-btn');
-  if (continueBtn) {
-    continueBtn.addEventListener('click', handleContinue);
-  }
+	// Modal interactions (modals live at body level)
+	document.addEventListener("click", handleDocumentClick);
+	document.addEventListener("input", handleDocumentInput);
+	document.addEventListener("keydown", handleGlobalKeydown);
+
+	// Info tooltip: hover in/out
+	document.addEventListener("mouseover", handleInfoMouseover);
+	document.addEventListener("mouseout", handleInfoMouseout);
 }
 
-function handleViewClick(e) {
-  // Close grid if click lands outside it and outside its trigger slot
-  if (STATE.activeGridSlot) {
-    const clickedGrid = e.target.closest('.grid-picker');
-    const clickedSlotNode = e.target.closest(`[data-slot="${STATE.activeGridSlot}"]`);
-    if (!clickedGrid && !clickedSlotNode) {
-      STATE.activeGridSlot = null;
-      saveState();
-      renderTree();
-      renderSemesterOverview(STATE.currentSemester);
-      return;
-    }
-  }
+// ─── Page (journey) interactions ─────────────────────────────────────────────
 
-  const target = e.target.closest('[data-action]');
-  if (!target) return;
+function handlePageClick(e) {
+	const target = e.target.closest("[data-action]");
+	if (!target) return;
+	const action = target.dataset.action;
 
-  const action = target.dataset.action;
+	switch (action) {
+		case "start":
+			onStart();
+			break;
 
-  switch (action) {
-    case 'start':
-      onStart();
-      break;
+		case "course-info": {
+			const code = target.dataset.course;
+			const slot = target.dataset.slot || null;
+			renderCourseDetailModal(code, slot);
+			break;
+		}
 
-    case 'sem-label':
-      onSemLabelClick(parseInt(target.dataset.semester, 10));
-      break;
+		case "open-grid": {
+			const slotKey = target.dataset.slot;
+			if (slotKey) onOpenGrid(slotKey);
+			break;
+		}
 
-    case 'course-info': {
-      const code = target.dataset.course;
-      const slot = target.dataset.slot || null;
-      renderCourseInfo(code, slot);
-      break;
-    }
+		case "toggle-sem": {
+			const semNum = parseInt(target.dataset.semester, 10);
+			if (semNum) toggleSemester(semNum);
+			break;
+		}
 
-    case 'open-grid': {
-      const slotKey = target.dataset.slot;
-      onOpenGrid(slotKey);
-      break;
-    }
+		case "fork-choice": {
+			const pathType = target.dataset.pathtype;
+			if (pathType) onForkChoice(pathType);
+			break;
+		}
 
-    case 'locked-slot':
-      break;
+		case "start-over":
+			onStartOver();
+			break;
 
-    case 'grid-card': {
-      const code = target.dataset.course;
-      const slot = target.dataset.slot;
-      onGridCardClick(code, slot);
-      break;
-    }
+		case "switch-path":
+			onSwitchPath();
+			break;
 
-    case 'grid-tab': {
-      const tab = target.dataset.tab;
-      const slot = target.dataset.slot;
-      onGridTabClick(tab, slot);
-      break;
-    }
+		case "continue":
+			handleContinue();
+			break;
 
-    default:
-      break;
-  }
+		default:
+			break;
+	}
 }
 
-function handleViewKeydown(e) {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  const target = e.target.closest('[data-action]');
-  if (!target) return;
-  e.preventDefault();
-  target.click();
+// Enter/Space activate any [role="button"] element in the page.
+function handlePageKeydown(e) {
+	if (e.key !== "Enter" && e.key !== " ") return;
+	const target = e.target.closest('[role="button"][data-action]');
+	if (!target) return;
+	e.preventDefault();
+	target.click();
 }
 
-/**
- * Double-click a grid card to instantly select it.
- * Locked and duplicate cards are ignored.
- */
-function handleViewDblClick(e) {
-  const card = e.target.closest('[data-action="grid-card"]');
-  if (!card) return;
-  if (card.classList.contains('is-locked-prereq') || card.classList.contains('is-duplicate')) return;
+// ─── Header interactions ─────────────────────────────────────────────────────
 
-  const code = card.dataset.course;
-  const slot = card.dataset.slot;
-  if (!code || !slot) return;
+function handleHeaderClick(e) {
+	const target = e.target.closest("[data-action]");
+	if (!target) return;
 
-  STATE.activeSidebarContent = { type: 'course-info', courseCode: code, slotKey: slot };
-  onSelectCourse();
+	switch (target.dataset.action) {
+		case "toggle-theme":
+			onToggleTheme();
+			break;
+
+		case "reset-btn":
+			onResetBtnClick();
+			break;
+
+		default:
+			break;
+	}
 }
 
-function handleSidebarClick(e) {
-  const target = e.target.closest('[data-action]');
-  if (!target) return;
+// ─── Modal interactions ──────────────────────────────────────────────────────
 
-  const action = target.dataset.action;
+function handleDocumentClick(e) {
+	if (!isModalOpen()) return;
+	const backdropEl = getOpenModal();
+	if (!backdropEl.contains(e.target)) return;
+	const modalEl = getOpenModalNode();
+	if (!modalEl) return;
 
-  switch (action) {
-    case 'toggle-theme':
-      onToggleTheme();
-      break;
+	// Info mark: show the tooltip, never select the course.
+	const infoEl = e.target.closest(".picker-info");
+	if (infoEl) {
+		showInfoTip(infoEl);
+		return;
+	}
+	// Clicking anywhere else closes any open info tip.
+	hideInfoTip();
 
-    case 'reset-btn':
-      onResetBtnClick();
-      break;
+	const target = e.target.closest("[data-action]");
+	if (!target) return;
+	const action = target.dataset.action;
 
-    case 'reset-confirm-yes':
-      onResetConfirm();
-      break;
+	switch (action) {
+		case "close-modal": {
+			// Close only when the backdrop itself (outside the modal) or the
+			// Close button was clicked — not on clicks inside the modal.
+			const isCloseBtn = target.classList.contains("modal-close");
+			if (e.target === backdropEl || isCloseBtn) closeModal();
+			break;
+		}
 
-    case 'reset-confirm-cancel':
-      onResetCancel();
-      break;
+		case "choose-course": {
+			const code = target.dataset.course;
+			const slot = target.dataset.slot;
+			if (code && slot) chooseCourse(code, slot);
+			break;
+		}
 
-    case 'select-course':
-      onSelectCourse();
-      break;
+		case "change-course": {
+			const slot = target.dataset.slot;
+			if (slot) {
+				closeModal();
+				onOpenGrid(slot);
+			}
+			break;
+		}
 
-    case 'fork-choice': {
-      const pathType = target.dataset.pathtype;
-      onForkChoice(pathType);
-      break;
-    }
+		case "grid-tab": {
+			const tab = target.dataset.tab;
+			if (!tab) break;
+			modalEl.querySelectorAll(".grid-tab").forEach((b) => {
+				b.classList.toggle("is-active", b === target);
+			});
+			modalEl.dataset.tab = tab;
+			renderPickerCards(modalEl);
+			break;
+		}
 
-    case 'show-fork-ui':
-      renderForkUI();
-      break;
-
-    default:
-      break;
-  }
+		default:
+			break;
+	}
 }
+
+// Live filtering while typing in the picker search box.
+function handleDocumentInput(e) {
+	if (!isModalOpen()) return;
+	if (!e.target.classList.contains("picker-search")) return;
+	const modalEl = getOpenModalNode();
+	if (!modalEl) return;
+	modalEl.dataset.search = e.target.value;
+	renderPickerCards(modalEl);
+}
+
+function handleGlobalKeydown(e) {
+	if (e.key === "Escape" && isModalOpen()) closeModal();
+}
+
+// ─── Course info tooltip (picker) ────────────────────────────────────────────
+// Rendered at body level with position:fixed so it never clips inside the
+// modal's scroll container.
+
+let infoTipEl = null;
+let infoTipFor = null;
+
+function showInfoTip(infoEl) {
+	if (infoTipFor === infoEl) return;
+	hideInfoTip();
+
+	const card = infoEl.closest(".picker-card");
+	const code = card?.dataset.course;
+	if (!code) return;
+	const course = CURRICULUM.courses[code];
+	const desc = course?.description || "";
+	if (!desc) return;
+
+	const tip = document.createElement("div");
+	tip.className = "picker-info-tip-fixed";
+
+	const head = document.createElement("div");
+	head.className = "picker-info-tip-head";
+	const headTitle = document.createElement("span");
+	headTitle.textContent = course.title;
+	head.appendChild(headTitle);
+	const headCode = document.createElement("code");
+	headCode.textContent = code;
+	head.appendChild(headCode);
+	tip.appendChild(head);
+
+	const body = document.createElement("p");
+	body.textContent = course.description;
+	tip.appendChild(body);
+
+	document.body.appendChild(tip);
+
+	// Place near the mark, flipping above if it would overflow the viewport.
+	const r = infoEl.getBoundingClientRect();
+	const gap = 8;
+	const below = r.bottom + gap;
+	const top = below + tip.offsetHeight > window.innerHeight - gap
+		? Math.max(gap, r.top - tip.offsetHeight - gap)
+		: below;
+	let left = r.right - tip.offsetWidth;
+	left = Math.max(gap, Math.min(left, window.innerWidth - tip.offsetWidth - gap));
+
+	tip.style.top = top + "px";
+	tip.style.left = left + "px";
+
+	infoTipEl = tip;
+	infoTipFor = infoEl;
+}
+
+function hideInfoTip() {
+	if (infoTipEl) {
+		infoTipEl.remove();
+		infoTipEl = null;
+	}
+	infoTipFor = null;
+}
+
+function handleInfoMouseover(e) {
+	if (!isModalOpen()) return;
+	const infoEl = e.target.closest(".picker-info");
+	if (infoEl) showInfoTip(infoEl);
+	// Leaving an info is handled by handleInfoMouseout — no hiding here, or
+	// synthetic mouseovers (cursor under mutated DOM) would kill fresh tips.
+}
+
+function handleInfoMouseout(e) {
+	if (!infoTipFor) return;
+	// Only react when the cursor leaves the info that owns the open tip —
+	// synthetic mouseouts from DOM mutations under the cursor must not kill it.
+	if (e.target !== infoTipFor && !infoTipFor.contains(e.target)) return;
+	const rel = e.relatedTarget;
+	if (!rel || !rel.closest || !rel.closest(".picker-info")) hideInfoTip();
+}
+
+// ─── Actions ─────────────────────────────────────────────────────────────────
 
 function onStart() {
-  STATE.currentSemester = 1;
-  STATE.revealedSemesters = [1];
-  saveState();
-  renderTree(1);
-  renderSemesterOverview(1);
-  updateContinueButton();
+	STATE.currentSemester = 1;
+	STATE.revealedSemesters = [1];
+	saveState();
+	renderApp();
+	scrollPageToTop();
 }
 
-function onSemLabelClick(semNum) {
-  if (!STATE.revealedSemesters.includes(semNum)) return;
-  renderSemesterOverview(semNum);
+function toggleSemester(semNum) {
+	const section = document.querySelector(
+		`.sem-section[data-semester="${semNum}"]`,
+	);
+	if (!section) return;
+	const collapsed = section.classList.toggle("is-collapsed");
+	if (collapsed) {
+		expandedSemesters.delete(semNum);
+	} else {
+		expandedSemesters.add(semNum);
+	}
 }
 
 function onOpenGrid(slotKey) {
-  if (STATE.activeGridSlot === slotKey) {
-    STATE.activeGridSlot = null;
-    saveState();
-    renderTree();
-    renderSemesterOverview(STATE.currentSemester);
-    return;
-  }
-
-  STATE.activeGridSlot = slotKey;
-  saveState();
-  renderTree();
-
-  const slotLabel = _getSlotLabel(slotKey);
-  renderGridPrompt(slotKey, slotLabel);
+	renderPickerModal(slotKey);
 }
 
-function onGridCardClick(courseCode, slotKey) {
-  renderCourseInfo(courseCode, slotKey);
-}
+// Adds a course to a slot, closes the picker, patches the path in place.
+function chooseCourse(code, slotKey) {
+	STATE.selections[slotKey] = code;
+	saveState();
+	closeModal();
+	patchCourseSelection(slotKey, code);
 
-// Re-renders grid cards in-place when a filter tab is clicked.
-function onGridTabClick(tab, slotKey) {
-  const existingGrid = document.querySelector(`.grid-picker[data-slot="${slotKey}"]`);
-  if (!existingGrid) return;
-
-  const activeTabEl = existingGrid.querySelector('.grid-tab.is-active');
-  if (activeTabEl) activeTabEl.classList.remove('is-active');
-  const newActiveTab = existingGrid.querySelector(`.grid-tab[data-tab="${tab}"]`);
-  if (newActiveTab) newActiveTab.classList.add('is-active');
-
-  const cardsEl = existingGrid.querySelector('.grid-cards');
-  if (!cardsEl) return;
-
-  const { courses, tabType } = getPoolForSlot(slotKey);
-  const filtered = filterCoursesByTab(courses, tab, tabType);
-  const selectedCode = STATE.selections[slotKey];
-
-  cardsEl.innerHTML = '';
-
-  for (const code of filtered) {
-    const course = CURRICULUM.courses[code];
-    if (!course) continue;
-
-    const prereqStatus = getPrereqStatus(code);
-    const hasUnmetPrereqs = prereqStatus.some(p => !p.met);
-    const isDuplicate = isDuplicateInOtherSlot(code, slotKey);
-    const isSelected = selectedCode === code;
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'grid-card-wrapper tooltip-wrapper';
-
-    const card = document.createElement('div');
-    card.className = 'grid-card';
-    card.setAttribute('role', 'button');
-    card.setAttribute('tabindex', hasUnmetPrereqs || isDuplicate ? '-1' : '0');
-    card.dataset.action = 'grid-card';
-    card.dataset.course = code;
-    card.dataset.slot = slotKey;
-
-    if (isSelected) card.classList.add('is-selected');
-    if (isDuplicate) {
-      card.classList.add('is-duplicate');
-      card.setAttribute('aria-disabled', 'true');
-    } else if (hasUnmetPrereqs) {
-      card.classList.add('is-locked-prereq');
-      card.setAttribute('aria-disabled', 'true');
-    }
-
-    const titleEl = document.createElement('div');
-    titleEl.className = 'grid-card-title';
-    titleEl.textContent = course.title;
-
-    const metaEl = document.createElement('div');
-    metaEl.className = 'grid-card-meta';
-    metaEl.textContent = `${code} · ${course.units}u`;
-
-    card.appendChild(titleEl);
-    card.appendChild(metaEl);
-    wrapper.appendChild(card);
-
-    if (hasUnmetPrereqs && !isDuplicate) {
-      const tooltip = document.createElement('div');
-      tooltip.className = 'tooltip-box';
-      const missingNames = prereqStatus.filter(p => !p.met).map(p => p.title).join(', ');
-      const labelSpan = document.createElement('span');
-      labelSpan.className = 'tooltip-missing-label';
-      labelSpan.textContent = 'Missing: ';
-      const coursesSpan = document.createElement('span');
-      coursesSpan.className = 'tooltip-missing-courses';
-      coursesSpan.textContent = missingNames;
-      tooltip.appendChild(labelSpan);
-      tooltip.appendChild(coursesSpan);
-      wrapper.appendChild(tooltip);
-    } else if (isDuplicate) {
-      const tooltip = document.createElement('div');
-      tooltip.className = 'tooltip-box';
-      tooltip.textContent = 'Already chosen in another slot.';
-      wrapper.appendChild(tooltip);
-    }
-
-    cardsEl.appendChild(wrapper);
-  }
-}
-
-function onSelectCourse() {
-  const ctx = STATE.activeSidebarContent;
-  if (!ctx || ctx.type !== 'course-info' || !ctx.slotKey) return;
-
-  const { courseCode, slotKey } = ctx;
-
-  STATE.selections[slotKey] = courseCode;
-  STATE.activeGridSlot = null;
-  saveState();
-
-  renderTree();
-  renderCourseInfo(courseCode, slotKey);
-  updateContinueButton();
+	// Return focus to the freshly filled card.
+	const card = document.querySelector(`.course-card[data-slot="${slotKey}"]`);
+	if (card && typeof card.focus === "function")
+		card.focus({ preventScroll: true });
 }
 
 function handleContinue() {
-  if (STATE.currentSemester === 0) return;
+	if (STATE.currentSemester === 0) return;
+	if (!isSemesterComplete(STATE.currentSemester)) return;
 
-  const semDef = CURRICULUM.semesters[STATE.currentSemester];
-  if (!semDef) return;
+	// Sem 6: reveal the fork decision
+	if (STATE.currentSemester === 6 && !STATE.forkUIShown && !STATE.forkChosen) {
+		STATE.forkUIShown = true;
+		saveState();
+		renderJourney();
+		scrollToSection("fork-section");
+		return;
+	}
 
-  if (!isSemesterComplete(STATE.currentSemester)) return;
+	// Programme complete at Sem 8
+	if (STATE.currentSemester === 8) {
+		STATE.forkChosen = true;
+		saveState();
+		renderJourney();
+		scrollToSection("end-section");
+		return;
+	}
 
-  // Sem 6: show fork UI first if not yet shown
-  if (STATE.currentSemester === 6 && !STATE.forkUIShown && !STATE.forkChosen) {
-    STATE.forkUIShown = true;
-    saveState();
-    renderForkUI();
-    renderTree();
-    updateContinueButton();
-    return;
-  }
+	const nextSem = STATE.currentSemester + 1;
 
-  // Programme complete at Sem 8
-  if (STATE.currentSemester === 8) {
-    STATE.forkChosen = true;
-    saveState();
-    renderEndCard('BSCH');
-    return;
-  }
+	// BSc path ends after Sem 6
+	if (nextSem > 6 && STATE.pathType === "BSC") {
+		renderJourney();
+		scrollToSection("end-section");
+		return;
+	}
 
-  const nextSem = STATE.currentSemester + 1;
+	STATE.currentSemester = nextSem;
+	if (!STATE.revealedSemesters.includes(nextSem)) {
+		STATE.revealedSemesters.push(nextSem);
+	}
+	saveState();
 
-  // BSc path ends after Sem 6
-  if (nextSem > 6 && STATE.pathType === 'BSC') {
-    renderEndCard('BSC');
-    return;
-  }
-
-  STATE.currentSemester = nextSem;
-  if (!STATE.revealedSemesters.includes(nextSem)) {
-    STATE.revealedSemesters.push(nextSem);
-  }
-  STATE.activeGridSlot = null;
-  saveState();
-
-  renderTree(nextSem);
-  renderSemesterOverview(nextSem);
-  updateContinueButton();
-
-  setTimeout(() => {
-    const newBlock = document.querySelector(`.semester-block[data-semester="${nextSem}"]`);
-    if (newBlock) {
-      newBlock.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, 350);
+	renderJourney();
+	scrollToSemester(nextSem);
 }
 
 function onForkChoice(pathType) {
-  STATE.pathType = pathType;
-  STATE.forkChosen = true;
-  saveState();
+	STATE.pathType = pathType;
+	STATE.forkChosen = true;
 
-  _renderForkUI();
-  renderTree();
+	if (pathType === "BSCH") {
+		STATE.currentSemester = 7;
+		if (!STATE.revealedSemesters.includes(7)) STATE.revealedSemesters.push(7);
+	}
+	saveState();
 
-  if (pathType === 'BSC') {
-    renderEndCard('BSC');
-  } else {
-    const nextSem = 7;
-    STATE.currentSemester = nextSem;
-    if (!STATE.revealedSemesters.includes(nextSem)) {
-      STATE.revealedSemesters.push(nextSem);
-    }
-    saveState();
+	renderJourney();
+	renderProgressBar();
 
-    renderTree(nextSem);
-    renderSemesterOverview(nextSem);
-    updateContinueButton();
+	if (pathType === "BSCH") {
+		scrollToSemester(7);
+	} else {
+		scrollToSection("end-section");
+	}
+}
 
-    setTimeout(() => {
-      const newBlock = document.querySelector(`.semester-block[data-semester="${nextSem}"]`);
-      if (newBlock) {
-        newBlock.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }, 350);
-  }
+// From the end card: return to the fork decision (selections are kept).
+function onSwitchPath() {
+	STATE.pathType = null;
+	STATE.forkChosen = false;
+	STATE.forkUIShown = true;
+	STATE.revealedSemesters = STATE.revealedSemesters.filter((n) => n <= 6);
+	STATE.currentSemester = 6;
+	saveState();
+	renderJourney();
+	scrollToSection("fork-section");
+}
+
+function onStartOver() {
+	resetState(); // triggers renderApp()
+	scrollPageToTop();
 }
 
 function onToggleTheme() {
-  STATE.theme = STATE.theme === 'dark' ? 'light' : 'dark';
-  saveState();
-  applyTheme();
-  updateThemeButton();
+	STATE.theme = STATE.theme === "dark" ? "light" : "dark";
+	saveState();
+	applyTheme();
+	updateThemeButton();
 }
 
 function updateThemeButton() {
-  const btn = document.getElementById('theme-toggle-btn');
-  if (!btn) return;
-  btn.textContent = STATE.theme === 'dark' ? '[ light ]' : '[ dark ]';
-  btn.setAttribute('aria-label', STATE.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
+	const btn = document.getElementById("theme-toggle-btn");
+	if (!btn) return;
+
+	const dark = STATE.theme === "dark";
+	btn.textContent = dark ? "Light" : "Dark";
+	btn.setAttribute(
+		"aria-label",
+		dark ? "Switch to light theme" : "Switch to dark theme",
+	);
 }
 
 function onResetBtnClick() {
-  const initial = document.getElementById('reset-btn-initial');
-  const confirm = document.getElementById('reset-confirm');
-  if (initial) initial.classList.add('is-hidden');
-  if (confirm) confirm.classList.add('is-visible');
+	if (!window.confirm("Reset your whole path? This clears all selections.")) return;
+	resetState(); // triggers renderApp()
+	updateThemeButton();
+	scrollPageToTop();
 }
 
-function onResetConfirm() {
-  const initial = document.getElementById('reset-btn-initial');
-  const confirm = document.getElementById('reset-confirm');
-  if (initial) initial.classList.remove('is-hidden');
-  if (confirm) confirm.classList.remove('is-visible');
-  resetState();
-  updateThemeButton();
+// ─── Scrolling helpers ───────────────────────────────────────────────────────
+
+function scrollPageToTop() {
+	const page = document.getElementById("page");
+	if (page) page.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function onResetCancel() {
-  const initial = document.getElementById('reset-btn-initial');
-  const confirm = document.getElementById('reset-confirm');
-  if (initial) initial.classList.remove('is-hidden');
-  if (confirm) confirm.classList.remove('is-visible');
+function scrollToSection(id) {
+	const page = document.getElementById("page");
+	if (!page) return;
+	const el = document.getElementById(id);
+	if (!el) return;
+	const top = el.getBoundingClientRect().top + page.scrollTop - 76;
+	page.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
 }
 
-// Finds the human-readable label for a slot key.
-function _getSlotLabel(slotKey) {
-  for (const [, semDef] of Object.entries(CURRICULUM.semesters)) {
-    for (const opt of semDef.optionals || []) {
-      if (opt.slotKey === slotKey) return opt.label;
-    }
-    for (const elec of semDef.electives || []) {
-      if (elec.slotKey === slotKey) return elec.label;
-    }
-  }
-  return slotKey;
+function scrollToSemester(semNum) {
+	const page = document.getElementById("page");
+	if (!page) return;
+	const section = document.querySelector(
+		`.sem-section[data-semester="${semNum}"]`,
+	);
+	if (!section) return;
+	const top = section.getBoundingClientRect().top + page.scrollTop - 76;
+	page.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
 }
 
-document.addEventListener('DOMContentLoaded', initApp);
+document.addEventListener("DOMContentLoaded", initApp);

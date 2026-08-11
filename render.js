@@ -1,1213 +1,1636 @@
 // render.js — DOM rendering. Reads STATE + CURRICULUM, writes DOM. Never mutates STATE.
 
+// In-memory set of semesters the user has manually expanded (not persisted).
+const expandedSemesters = new Set();
+
+// Currently open modal element, if any.
+let openModalEl = null;
+let lastFocusedEl = null;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 // All course codes currently "in the path": every selection + every fixed course
 // from all revealed semesters.
 function getCoursesInPath() {
-  const codes = new Set(Object.values(STATE.selections));
-  for (const semNum of STATE.revealedSemesters) {
-    const semDef = CURRICULUM.semesters[semNum];
-    if (semDef) {
-      for (const code of semDef.fixed) codes.add(code);
-    }
-  }
-  return codes;
+	const codes = new Set(Object.values(STATE.selections));
+	for (const semNum of STATE.revealedSemesters) {
+		const semDef = CURRICULUM.semesters[semNum];
+		if (semDef) {
+			for (const code of semDef.fixed) codes.add(code);
+		}
+	}
+	return codes;
 }
 
-// Returns [{ code, title, met }] for every prereq of a course (explicit + implicit).
+// Returns [{ code, title, met, semesterFixed }] for every prereq of a course.
 function getPrereqStatus(courseCode) {
-  const inPath = getCoursesInPath();
-  const prereqs  = CURRICULUM.courses[courseCode]?.prereqs ?? [];
-  const implicit = CURRICULUM.implicitPrereqs[courseCode] ?? [];
-  return [...prereqs, ...implicit].map(prereqCode => ({
-    code:  prereqCode,
-    title: CURRICULUM.courses[prereqCode]?.title ?? prereqCode,
-    met:   inPath.has(prereqCode)
-  }));
+	const inPath = getCoursesInPath();
+	const prereqs = CURRICULUM.courses[courseCode]?.prereqs ?? [];
+	const implicit = CURRICULUM.implicitPrereqs[courseCode] ?? [];
+	return [...prereqs, ...implicit].map((prereqCode) => {
+		const pc = CURRICULUM.courses[prereqCode];
+		return {
+			code: prereqCode,
+			title: pc?.title ?? prereqCode,
+			semesterFixed: pc?.semesterFixed ?? null,
+			met: inPath.has(prereqCode),
+		};
+	});
+}
+
+// An unmet prereq is "blocking" (red) when it should already have been taken;
+// otherwise it's "upcoming" (amber) — scheduled in a later semester.
+function isPrereqBlocking(p) {
+	if (p.met) return false;
+	if (p.semesterFixed === null) return true;
+	return p.semesterFixed <= STATE.currentSemester;
 }
 
 // Returns true if the course selected for slotKey is depended on by another
 // selection — meaning swapping it would break a prereq chain.
 function isSlotLocked(slotKey) {
-  const currentSelection = STATE.selections[slotKey];
-  if (!currentSelection) return false;
-  const others = Object.entries(STATE.selections)
-    .filter(([k]) => k !== slotKey)
-    .map(([, v]) => v);
-  return others.some(code => (CURRICULUM.courses[code]?.prereqs ?? []).includes(currentSelection));
+	const currentSelection = STATE.selections[slotKey];
+	if (!currentSelection) return false;
+	const others = Object.entries(STATE.selections)
+		.filter(([k]) => k !== slotKey)
+		.map(([, v]) => v);
+	return others.some((code) =>
+		(CURRICULUM.courses[code]?.prereqs ?? []).includes(currentSelection),
+	);
 }
 
 // Returns true if courseCode is already chosen in a different slot.
 function isDuplicateInOtherSlot(courseCode, slotKey) {
-  for (const [k, v] of Object.entries(STATE.selections)) {
-    if (k !== slotKey && v === courseCode) return true;
-  }
-  return false;
+	for (const [k, v] of Object.entries(STATE.selections)) {
+		if (k !== slotKey && v === courseCode) return true;
+	}
+	return false;
 }
 
 // Returns { courses, tabType } for the given slot key.
 function getPoolForSlot(slotKey) {
-  if (
-    slotKey === 'DISCIPLINE_ELECTIVE_1' ||
-    slotKey === 'DISCIPLINE_ELECTIVE_2' ||
-    slotKey === 'DISCIPLINE_ELECTIVE_3' ||
-    slotKey === 'DISCIPLINE_ELECTIVE_4'
-  ) {
-    return { courses: CURRICULUM.bscElectives, tabType: 'none' };
-  }
-
-  if (slotKey === 'OPEN_ELECTIVE_SEM7_1' || slotKey === 'OPEN_ELECTIVE_SEM7_2') {
-    return { courses: CURRICULUM.openElectives, tabType: 'open_only' };
-  }
-
-  if (
-    slotKey === 'DISC_OR_OPEN_SEM7' ||
-    slotKey === 'OPEN_OR_DISC_SEM8_1' ||
-    slotKey === 'OPEN_OR_DISC_SEM8_2'
-  ) {
-    return {
-      courses: [...CURRICULUM.disciplineElectives, ...CURRICULUM.openElectives],
-      tabType: 'mixed'
-    };
-  }
-
-  if (slotKey === 'DISC_OR_MINI_SEM8') {
-    return { courses: CURRICULUM.disciplineElectives, tabType: 'discipline' };
-  }
-
-  if (
-    slotKey === 'DISC_ELECTIVE_SEM7_1' ||
-    slotKey === 'DISC_ELECTIVE_SEM7_2' ||
-    slotKey === 'DISC_ELECTIVE_SEM7_OPT' ||
-    slotKey === 'DISC_ELECTIVE_SEM8_1' ||
-    slotKey === 'DISC_ELECTIVE_SEM8_2' ||
-    slotKey === 'DISC_ELECTIVE_SEM8_OPT'
-  ) {
-    return { courses: CURRICULUM.disciplineElectives, tabType: 'discipline' };
-  }
-
-  // Optional slots — pull choices from the semester definition.
-  for (const [, semDef] of Object.entries(CURRICULUM.semesters)) {
-    for (const opt of semDef.optionals || []) {
-      if (opt.slotKey === slotKey) return { courses: opt.choices, tabType: 'none' };
-    }
-  }
-
-  return { courses: [], tabType: 'none' };
-}
-
-// Fades out sidebar content, calls renderFn, then fades back in.
-function swapSidebarContent(renderFn) {
-  const content = document.getElementById('sidebar-content');
-  if (!content) { renderFn(); return; }
-  content.classList.add('is-fading');
-  setTimeout(() => {
-    renderFn();
-    content.classList.remove('is-fading');
-  }, 200);
-}
-
-
-// ─── Tree ─────────────────────────────────────────────────────────────────────
-
-// Full tree re-render. If animateSemester is set, that block gets the staggered reveal.
-function renderTree(animateSemester = null) {
-  const treeEl = document.getElementById('tree');
-  if (!treeEl) return;
-
-  const trunkEl = document.getElementById('trunk-line');
-  if (trunkEl) trunkEl.style.display = STATE.revealedSemesters.length > 0 ? 'block' : 'none';
-
-  const startNode = document.getElementById('start-node');
-  if (startNode) startNode.style.display = STATE.currentSemester === 0 ? 'flex' : 'none';
-
-  treeEl.querySelectorAll('.semester-block').forEach(el => el.remove());
-  const existingFork = treeEl.querySelector('#fork-container');
-  if (existingFork) existingFork.remove();
-
-  // Sems 1–6 first, then the fork visual, then Sems 7–8
-  for (const semNum of STATE.revealedSemesters) {
-    if (semNum <= 6) treeEl.appendChild(renderSemesterBlock(semNum, semNum === animateSemester));
-  }
-
-  if (STATE.forkUIShown || STATE.forkChosen) renderForkVisual(treeEl);
-
-  for (const semNum of STATE.revealedSemesters) {
-    if (semNum >= 7) treeEl.appendChild(renderSemesterBlock(semNum, semNum === animateSemester));
-  }
-
-  updateContinueButton();
-}
-
-// Builds a semester block element. animate=true triggers the staggered reveal.
-function renderSemesterBlock(semNum, animate) {
-  const semDef = CURRICULUM.semesters[semNum];
-  if (!semDef) return document.createElement('div');
-
-  const block = document.createElement('div');
-  block.className = 'semester-block';
-  block.dataset.semester = semNum;
-
-  if (!animate) block.classList.add('no-animate', 'is-revealed');
-
-  // Running unit total across all revealed semesters up to and including this one.
-  const cumulative = STATE.revealedSemesters
-    .filter(n => n <= semNum)
-    .reduce((sum, n) => sum + (CURRICULUM.semesters[n]?.units ?? 0), 0);
-
-  const labelNode = document.createElement('div');
-  labelNode.className = 'semester-label-node';
-  labelNode.setAttribute('role', 'button');
-  labelNode.setAttribute('tabindex', '0');
-  labelNode.dataset.action = 'sem-label';
-  labelNode.dataset.semester = semNum;
-
-  const labelSpan = document.createElement('span');
-  labelSpan.className = 'sem-label';
-  labelSpan.textContent = semDef.label;
-
-  const unitsSpan = document.createElement('span');
-  unitsSpan.className = 'sem-units';
-  unitsSpan.textContent = `${semDef.units}u · ${cumulative}u total`;
-
-  labelNode.appendChild(labelSpan);
-  labelNode.appendChild(unitsSpan);
-  block.appendChild(labelNode);
-
-  const subtree = document.createElement('div');
-  subtree.className = 'semester-subtree';
-  let nodeIndex = 0;
-
-  for (const code of semDef.fixed) {
-    subtree.appendChild(renderCourseNode(code, null, nodeIndex, animate));
-    nodeIndex++;
-  }
-
-  for (const opt of semDef.optionals || []) {
-    subtree.appendChild(renderSlotNode(opt.slotKey, opt.label, 'optional', nodeIndex, animate));
-    nodeIndex++;
-    if (STATE.activeGridSlot === opt.slotKey) {
-      subtree.appendChild(renderGrid(opt.slotKey));
-    }
-  }
-
-  for (const elec of semDef.electives || []) {
-    subtree.appendChild(renderSlotNode(elec.slotKey, elec.label, 'elective', nodeIndex, animate));
-    nodeIndex++;
-    if (STATE.activeGridSlot === elec.slotKey) {
-      subtree.appendChild(renderGrid(elec.slotKey));
-    }
-  }
-
-  block.appendChild(subtree);
-
-  if (animate) {
-    // Double rAF ensures the browser has painted the initial hidden state before transitioning.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => block.classList.add('is-revealed'));
-    });
-  }
-
-  return block;
-}
-
-// Builds a course row for a fixed course.
-function renderCourseNode(courseCode, slotKey, nodeIndex, animate) {
-  const course = CURRICULUM.courses[courseCode];
-  if (!course) return document.createElement('div');
-
-  const row = document.createElement('div');
-  row.className = 'course-row';
-
-  const node = document.createElement('div');
-  node.className = 'node' + (course.type === 'project' ? ' node-project' : '');
-  node.setAttribute('role', 'button');
-  node.setAttribute('tabindex', '0');
-  node.dataset.action = 'course-info';
-  node.dataset.course = courseCode;
-  if (slotKey) node.dataset.slot = slotKey;
-
-  if (animate) {
-    node.style.opacity = '0';
-    node.style.transitionDelay = `${Math.min(nodeIndex * 0.06, 0.4)}s`;
-    requestAnimationFrame(() => requestAnimationFrame(() => { node.style.opacity = '1'; }));
-  }
-
-  const titleEl = document.createElement('div');
-  titleEl.className = 'node-title';
-  titleEl.textContent = course.title;
-
-  const metaEl = document.createElement('div');
-  metaEl.className = 'node-meta';
-  metaEl.textContent = `${courseCode} · ${course.units}u`;
-
-  node.appendChild(titleEl);
-  node.appendChild(metaEl);
-
-  const prereqStatus = getPrereqStatus(courseCode);
-  if (prereqStatus.length > 0) {
-    const badgesEl = document.createElement('div');
-    badgesEl.className = 'node-badges';
-    for (const p of prereqStatus) {
-      const badge = document.createElement('span');
-      badge.className = `node-badge ${p.met ? 'met' : 'unmet'}`;
-      badge.innerHTML = `<span class="badge-mark">${p.met ? '✓' : '✕'}</span><span class="badge-text"> ${p.title}</span>`;
-      badgesEl.appendChild(badge);
-    }
-    node.appendChild(badgesEl);
-  }
-
-  row.appendChild(node);
-  return row;
-}
-
-// Builds a slot node row — filled or empty, optional or elective.
-function renderSlotNode(slotKey, slotLabel, slotType, nodeIndex, animate) {
-  const selectedCode = STATE.selections[slotKey];
-  const row = document.createElement('div');
-  row.className = 'course-row';
-
-  const locked = isSlotLocked(slotKey);
-  const isActiveGrid = STATE.activeGridSlot === slotKey;
-
-  if (selectedCode) {
-    const course = CURRICULUM.courses[selectedCode];
-    const node = document.createElement('div');
-    node.className = 'node node-slot is-filled' +
-                     (isActiveGrid ? ' is-active-grid' : '') +
-                     (locked ? ' is-locked' : '');
-    node.setAttribute('role', 'button');
-    node.setAttribute('tabindex', '0');
-    node.dataset.action = locked ? 'locked-slot' : 'open-grid';
-    node.dataset.slot = slotKey;
-    node.dataset.course = selectedCode;
-
-    if (animate) {
-      node.style.opacity = '0';
-      node.style.transitionDelay = `${Math.min(nodeIndex * 0.06, 0.4)}s`;
-      requestAnimationFrame(() => requestAnimationFrame(() => { node.style.opacity = '1'; }));
-    }
-
-    const checkEl = document.createElement('div');
-    checkEl.className = 'node-title';
-    checkEl.textContent = `✓ ${course ? course.title : selectedCode}`;
-
-    const metaEl = document.createElement('div');
-    metaEl.className = 'node-meta';
-    metaEl.textContent = `${selectedCode} · ${course ? course.units + 'u' : ''}`;
-
-    const slotLabelEl = document.createElement('div');
-    slotLabelEl.className = 'node-slot-label';
-    slotLabelEl.textContent = slotLabel;
-
-    node.appendChild(checkEl);
-    node.appendChild(metaEl);
-    node.appendChild(slotLabelEl);
-
-    if (locked) {
-      const tooltipWrapper = document.createElement('div');
-      tooltipWrapper.className = 'tooltip-wrapper';
-      const dependents = Object.values(STATE.selections).filter(code => {
-        return (CURRICULUM.courses[code]?.prereqs ?? []).includes(selectedCode);
-      });
-      const depNames = dependents.map(c => CURRICULUM.courses[c]?.title ?? c).join(', ');
-      const tooltip = document.createElement('div');
-      tooltip.className = 'tooltip-box';
-      tooltip.textContent = `Can't change — ${depNames} in your path depends on this.`;
-      tooltipWrapper.appendChild(node);
-      tooltipWrapper.appendChild(tooltip);
-      row.appendChild(tooltipWrapper);
-    } else {
-      row.appendChild(node);
-    }
-  } else {
-    const node = document.createElement('div');
-    node.className = 'node node-slot' + (isActiveGrid ? ' is-active-grid' : '');
-    node.setAttribute('role', 'button');
-    node.setAttribute('tabindex', '0');
-    node.dataset.action = 'open-grid';
-    node.dataset.slot = slotKey;
-
-    if (animate) {
-      node.style.opacity = '0';
-      node.style.transitionDelay = `${Math.min(nodeIndex * 0.06, 0.4)}s`;
-      requestAnimationFrame(() => requestAnimationFrame(() => { node.style.opacity = '1'; }));
-    }
-
-    const labelEl = document.createElement('div');
-    labelEl.className = 'node-title';
-    labelEl.textContent = slotLabel;
-
-    const hintEl = document.createElement('div');
-    hintEl.className = 'node-pick-hint';
-    hintEl.textContent = '[ pick a course ]';
-
-    node.appendChild(labelEl);
-    node.appendChild(hintEl);
-    row.appendChild(node);
-  }
-
-  return row;
-}
-
-// Renders the fork visual: BSc branch + dashed Hons trunk extension + Hons branch.
-function renderForkVisual(treeEl) {
-  const forkEl = document.createElement('div');
-  forkEl.id = 'fork-container';
-  forkEl.className = 'fork-container is-visible';
-
-  const bscBranch = document.createElement('div');
-  bscBranch.className = 'fork-bsc-branch';
-
-  const bscTerminal = document.createElement('div');
-  bscTerminal.className = 'terminal-node';
-
-  const bscDot = document.createElement('div');
-  bscDot.className = 'terminal-dot' + (STATE.pathType === 'BSC' ? ' is-active' : '');
-
-  const bscLabel = document.createElement('span');
-  bscLabel.className = 'terminal-label';
-  bscLabel.textContent = 'End — BSc Computer Science';
-
-  bscTerminal.appendChild(bscDot);
-  bscTerminal.appendChild(bscLabel);
-  bscBranch.appendChild(bscTerminal);
-  forkEl.appendChild(bscBranch);
-
-  const honsIndicator = document.createElement('div');
-  honsIndicator.className = 'fork-hons-indicator';
-  forkEl.appendChild(honsIndicator);
-
-  const honsBranch = document.createElement('div');
-  honsBranch.className = 'fork-hons-branch';
-
-  const honsTerminal = document.createElement('div');
-  honsTerminal.className = 'terminal-node';
-
-  const honsDot = document.createElement('div');
-  honsDot.className = 'terminal-dot' + (STATE.pathType === 'BSCH' ? ' is-active' : '');
-
-  const honsLabel = document.createElement('span');
-  honsLabel.className = 'terminal-label';
-  honsLabel.textContent = 'End — BSc (Honours) Computer Science';
-
-  honsTerminal.appendChild(honsDot);
-  honsTerminal.appendChild(honsLabel);
-  honsBranch.appendChild(honsTerminal);
-  forkEl.appendChild(honsBranch);
-
-  treeEl.appendChild(forkEl);
-}
-
-// Builds the inline elective/optional grid below its slot node.
-function renderGrid(slotKey) {
-  const { courses, tabType } = getPoolForSlot(slotKey);
-  const selectedCode = STATE.selections[slotKey];
-
-  const gridEl = document.createElement('div');
-  gridEl.className = 'grid-picker';
-  gridEl.dataset.slot = slotKey;
-  gridEl.dataset.action = 'grid-container';
-
-  const helpText = document.createElement('p');
-  helpText.className = 'grid-help-text';
-  helpText.textContent = 'Click on a course to see more about it in the sidebar.';
-  gridEl.appendChild(helpText);
-
-  // Restore the previously active tab from the DOM if the grid is being re-rendered.
-  let activeTab = 'All';
-  const existingGrid = document.querySelector(`.grid-picker[data-slot="${slotKey}"]`);
-  if (existingGrid) {
-    const activeTabEl = existingGrid.querySelector('.grid-tab.is-active');
-    if (activeTabEl) activeTab = activeTabEl.dataset.tab;
-  }
-
-  if (tabType !== 'none' && tabType !== 'open_only') {
-    const tabsEl = document.createElement('div');
-    tabsEl.className = 'grid-tabs';
-    const tabs = tabType === 'mixed'
-      ? ['All', 'AIML', 'Cloud', 'Full-Stack', 'Other', 'Open Elective']
-      : ['All', 'AIML', 'Cloud', 'Full-Stack', 'Other'];
-
-    for (const tab of tabs) {
-      const btn = document.createElement('button');
-      btn.className = 'grid-tab' + (tab === activeTab ? ' is-active' : '');
-      btn.dataset.tab = tab;
-      btn.dataset.action = 'grid-tab';
-      btn.dataset.slot = slotKey;
-      btn.textContent = `[ ${tab} ]`;
-      tabsEl.appendChild(btn);
-    }
-    gridEl.appendChild(tabsEl);
-  }
-
-  const cardsEl = document.createElement('div');
-  cardsEl.className = 'grid-cards';
-
-  for (const code of filterCoursesByTab(courses, activeTab, tabType)) {
-    const course = CURRICULUM.courses[code];
-    if (!course) continue;
-
-    const prereqStatus = getPrereqStatus(code);
-    const hasUnmetPrereqs = prereqStatus.some(p => !p.met);
-    const isDuplicate = isDuplicateInOtherSlot(code, slotKey);
-    const isSelected = selectedCode === code;
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'grid-card-wrapper tooltip-wrapper';
-
-    const card = document.createElement('div');
-    card.className = 'grid-card';
-    card.setAttribute('role', 'button');
-    card.setAttribute('tabindex', hasUnmetPrereqs || isDuplicate ? '-1' : '0');
-    card.dataset.action = 'grid-card';
-    card.dataset.course = code;
-    card.dataset.slot = slotKey;
-
-    if (isSelected) card.classList.add('is-selected');
-    if (isDuplicate) {
-      card.classList.add('is-duplicate');
-      card.setAttribute('aria-disabled', 'true');
-      card.setAttribute('aria-label', `${course.title} — Already chosen in another slot.`);
-    } else if (hasUnmetPrereqs) {
-      card.classList.add('is-locked-prereq');
-      card.setAttribute('aria-disabled', 'true');
-      const missing = prereqStatus.filter(p => !p.met).map(p => p.title).join(', ');
-      card.setAttribute('aria-label', `${course.title} — Missing prerequisites: ${missing}`);
-    }
-
-    const titleEl = document.createElement('div');
-    titleEl.className = 'grid-card-title';
-    titleEl.textContent = course.title;
-
-    const metaEl = document.createElement('div');
-    metaEl.className = 'grid-card-meta';
-    metaEl.textContent = `${code} · ${course.units}u`;
-
-    card.appendChild(titleEl);
-    card.appendChild(metaEl);
-    wrapper.appendChild(card);
-
-    if (hasUnmetPrereqs && !isDuplicate) {
-      const tooltip = document.createElement('div');
-      tooltip.className = 'tooltip-box';
-      const missingNames = prereqStatus.filter(p => !p.met).map(p => p.title).join(', ');
-      const labelSpan = document.createElement('span');
-      labelSpan.className = 'tooltip-missing-label';
-      labelSpan.textContent = 'Missing: ';
-      const coursesSpan = document.createElement('span');
-      coursesSpan.className = 'tooltip-missing-courses';
-      coursesSpan.textContent = missingNames;
-      tooltip.appendChild(labelSpan);
-      tooltip.appendChild(coursesSpan);
-      wrapper.appendChild(tooltip);
-    } else if (isDuplicate) {
-      const tooltip = document.createElement('div');
-      tooltip.className = 'tooltip-box';
-      tooltip.textContent = 'Already chosen in another slot.';
-      wrapper.appendChild(tooltip);
-    }
-
-    cardsEl.appendChild(wrapper);
-  }
-
-  gridEl.appendChild(cardsEl);
-
-  // Defer is-open so the CSS opacity transition actually plays.
-  requestAnimationFrame(() => gridEl.classList.add('is-open'));
-  return gridEl;
+	if (
+		slotKey === "DISCIPLINE_ELECTIVE_1" ||
+		slotKey === "DISCIPLINE_ELECTIVE_2" ||
+		slotKey === "DISCIPLINE_ELECTIVE_3" ||
+		slotKey === "DISCIPLINE_ELECTIVE_4"
+	) {
+		return { courses: CURRICULUM.bscElectives, tabType: "none" };
+	}
+
+	if (
+		slotKey === "OPEN_ELECTIVE_SEM7_1" ||
+		slotKey === "OPEN_ELECTIVE_SEM7_2"
+	) {
+		return { courses: CURRICULUM.openElectives, tabType: "open_only" };
+	}
+
+	if (
+		slotKey === "DISC_OR_OPEN_SEM7" ||
+		slotKey === "OPEN_OR_DISC_SEM8_1" ||
+		slotKey === "OPEN_OR_DISC_SEM8_2"
+	) {
+		return {
+			courses: [...CURRICULUM.disciplineElectives, ...CURRICULUM.openElectives],
+			tabType: "mixed",
+		};
+	}
+
+	if (slotKey === "DISC_OR_MINI_SEM8") {
+		return { courses: CURRICULUM.disciplineElectives, tabType: "discipline" };
+	}
+
+	if (
+		slotKey === "DISC_ELECTIVE_SEM7_1" ||
+		slotKey === "DISC_ELECTIVE_SEM7_2" ||
+		slotKey === "DISC_ELECTIVE_SEM7_OPT" ||
+		slotKey === "DISC_ELECTIVE_SEM8_1" ||
+		slotKey === "DISC_ELECTIVE_SEM8_2" ||
+		slotKey === "DISC_ELECTIVE_SEM8_OPT"
+	) {
+		return { courses: CURRICULUM.disciplineElectives, tabType: "discipline" };
+	}
+
+	// Optional slots — pull choices from the semester definition.
+	for (const [, semDef] of Object.entries(CURRICULUM.semesters)) {
+		for (const opt of semDef.optionals || []) {
+			if (opt.slotKey === slotKey)
+				return { courses: opt.choices, tabType: "none" };
+		}
+	}
+
+	return { courses: [], tabType: "none" };
 }
 
 // Filters a course list by the active tab label.
-function filterCoursesByTab(courses, activeTab, tabType) {
-  if (activeTab === 'All') return courses;
-  if (activeTab === 'Open Elective') return courses.filter(code => CURRICULUM.openElectives.includes(code));
+function filterCoursesByTab(courses, activeTab) {
+	if (activeTab === "All") return courses;
+	if (activeTab === "Open Elective")
+		return courses.filter((code) => CURRICULUM.openElectives.includes(code));
 
-  const specMap = { 'AIML': 'AIML', 'Cloud': 'Cloud', 'Full-Stack': 'FullStack' };
-  const specKey = specMap[activeTab];
+	const specMap = { AIML: "AIML", Cloud: "Cloud", "Full-Stack": "FullStack" };
+	const specKey = specMap[activeTab];
 
-  if (specKey) {
-    return courses.filter(code => CURRICULUM.courses[code]?.specialization === specKey);
-  }
+	if (specKey) {
+		return courses.filter(
+			(code) => CURRICULUM.courses[code]?.specialization === specKey,
+		);
+	}
 
-  if (activeTab === 'Other') {
-    return courses.filter(code => {
-      const course = CURRICULUM.courses[code];
-      if (!course) return false;
-      if (CURRICULUM.openElectives.includes(code)) return false;
-      return !course.specialization;
-    });
-  }
+	if (activeTab === "Other") {
+		return courses.filter((code) => {
+			const course = CURRICULUM.courses[code];
+			if (!course) return false;
+			if (CURRICULUM.openElectives.includes(code)) return false;
+			return !course.specialization;
+		});
+	}
 
-  return courses;
+	return courses;
 }
 
-
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
-
-function renderWelcome() {
-  const content = document.getElementById('sidebar-content');
-  if (!content) return;
-  content.innerHTML = '';
-
-  const el = document.createElement('div');
-  el.className = 'sidebar-welcome';
-
-  const h2 = document.createElement('h2');
-  h2.textContent = 'Welcome';
-
-  const p = document.createElement('p');
-  p.textContent =
-    'This tool helps you visualize your academic path through the BITS Pilani BSc Computer ' +
-    'Science program. Click through semesters, pick your electives, and see how your choices ' +
-    'shape your degree. Your progress is saved automatically.';
-
-  el.appendChild(h2);
-  el.appendChild(p);
-  content.appendChild(el);
-
-  const selectBtn = document.getElementById('select-btn');
-  if (selectBtn) selectBtn.classList.remove('is-visible');
-  const counter = document.getElementById('elective-counter');
-  if (counter) counter.textContent = '';
-
-  updateSpecTrackerVisibility();
+// Human-readable label for a slot key (e.g. "Discipline Elective #1").
+function _getSlotMeta(slotKey) {
+	for (const [, semDef] of Object.entries(CURRICULUM.semesters)) {
+		for (const opt of semDef.optionals || []) {
+			if (opt.slotKey === slotKey)
+				return { label: opt.label, optional: false };
+		}
+		for (const elec of semDef.electives || []) {
+			if (elec.slotKey === slotKey)
+				return { label: elec.label, optional: !!elec.optional };
+		}
+	}
+	return { label: slotKey, optional: false };
 }
 
-function renderSemesterOverview(semNum) {
-  swapSidebarContent(() => _renderSemesterOverview(semNum));
+function _getSlotLabel(slotKey) {
+	return _getSlotMeta(slotKey).label;
 }
 
-function _renderSemesterOverview(semNum) {
-  const content = document.getElementById('sidebar-content');
-  if (!content) return;
-  content.innerHTML = '';
-
-  const semDef = CURRICULUM.semesters[semNum];
-  if (!semDef) return;
-
-  const el = document.createElement('div');
-  el.className = 'sem-overview';
-
-  const header = document.createElement('div');
-  header.className = 'sem-overview-header';
-
-  const h2 = document.createElement('h2');
-  h2.textContent = semDef.label;
-
-  const unitsNote = document.createElement('div');
-  unitsNote.className = 'sem-units-note';
-  unitsNote.textContent = `${semDef.units} units`;
-
-  header.appendChild(h2);
-  header.appendChild(unitsNote);
-  el.appendChild(header);
-
-  if (semDef.fixed.length > 0) {
-    const section = _makeOverviewSection('Core / Fixed');
-    for (const code of semDef.fixed) {
-      const course = CURRICULUM.courses[code];
-      const item = document.createElement('div');
-      item.className = 'sem-overview-item';
-      item.textContent = course ? course.title : code;
-      const units = document.createElement('span');
-      units.className = 'text-muted text-sm';
-      units.textContent = course ? `${course.units}u` : '';
-      item.appendChild(units);
-      section.querySelector('.sem-overview-items').appendChild(item);
-    }
-    el.appendChild(section);
-  }
-
-  if ((semDef.optionals || []).length > 0) {
-    const section = _makeOverviewSection('Optionals');
-    for (const opt of semDef.optionals) {
-      const selected = STATE.selections[opt.slotKey];
-      const item = document.createElement('div');
-      item.className = 'sem-overview-item' + (selected ? '' : ' is-pending');
-      if (selected) {
-        const course = CURRICULUM.courses[selected];
-        item.textContent = course ? course.title : selected;
-        const units = document.createElement('span');
-        units.className = 'text-muted text-sm';
-        units.textContent = course ? `${course.units}u` : '';
-        item.appendChild(units);
-      } else {
-        item.textContent = `${opt.label} — not yet chosen`;
-      }
-      section.querySelector('.sem-overview-items').appendChild(item);
-    }
-    el.appendChild(section);
-  }
-
-  if ((semDef.electives || []).length > 0) {
-    const section = _makeOverviewSection('Electives');
-    for (const elec of semDef.electives) {
-      const selected = STATE.selections[elec.slotKey];
-      const item = document.createElement('div');
-      item.className = 'sem-overview-item' + (selected ? '' : ' is-pending');
-      if (selected) {
-        const course = CURRICULUM.courses[selected];
-        item.textContent = course ? course.title : selected;
-        const units = document.createElement('span');
-        units.className = 'text-muted text-sm';
-        units.textContent = course ? `${course.units}u` : '';
-        item.appendChild(units);
-      } else {
-        item.textContent = `${elec.label} — not yet chosen`;
-      }
-      section.querySelector('.sem-overview-items').appendChild(item);
-    }
-    el.appendChild(section);
-  }
-
-  if (semNum === 5) {
-    const panel = document.createElement('div');
-    panel.className = 'sem-overview-section mt-md';
-    const note = document.createElement('p');
-    note.className = 'text-sm text-muted';
-    note.textContent =
-      'The Study Project (BCS ZC241T) is a 5-unit required course in Semester V. ' +
-      'You will identify a software problem, study its scope, and submit a project proposal. ' +
-      'It is a prerequisite for the Semester VI Project.';
-    panel.appendChild(note);
-    el.appendChild(panel);
-  }
-
-  if (semNum === 6) {
-    const panel = document.createElement('div');
-    panel.className = 'sem-overview-section mt-md';
-    const note = document.createElement('p');
-    note.className = 'text-sm text-muted';
-    note.textContent =
-      'Once you complete all Semester VI choices, you will decide whether to finish with ' +
-      'a BSc or continue for two more semesters toward a BSc Honours degree.';
-    panel.appendChild(note);
-    el.appendChild(panel);
-  }
-
-  content.appendChild(el);
-
-  const selectBtn = document.getElementById('select-btn');
-  if (selectBtn) selectBtn.classList.remove('is-visible');
-
-  _updateElectiveCounter(semNum);
-  updateSpecTrackerVisibility();
+// Semester number + label containing the given slot key.
+function _getSlotSemester(slotKey) {
+	for (const [semNum, semDef] of Object.entries(CURRICULUM.semesters)) {
+		const has =
+			(semDef.optionals || []).some((o) => o.slotKey === slotKey) ||
+			(semDef.electives || []).some((e) => e.slotKey === slotKey);
+		if (has) return { num: parseInt(semNum, 10), label: semDef.label };
+	}
+	return { num: 0, label: "" };
 }
 
-function _makeOverviewSection(title) {
-  const section = document.createElement('div');
-  section.className = 'sem-overview-section';
-  const h3 = document.createElement('h3');
-  h3.textContent = title;
-  const items = document.createElement('div');
-  items.className = 'sem-overview-items';
-  section.appendChild(h3);
-  section.appendChild(items);
-  return section;
+function _getTypeLabel(type) {
+	const map = {
+		core: "Core",
+		foundation: "Foundation",
+		project: "Project",
+		elective: "Elective",
+		discipline_elective: "Discipline",
+		open_elective: "Open",
+		science_elective: "Science",
+		humanities_elective: "Humanities",
+		social_science_elective: "Social Science",
+	};
+	return map[type] || type || "Course";
 }
 
-// Shows full course info. If slotKey is provided, the SELECT button is shown.
-function renderCourseInfo(courseCode, slotKey) {
-  STATE.activeSidebarContent = { type: 'course-info', courseCode, slotKey: slotKey || null };
-  swapSidebarContent(() => _renderCourseInfo(courseCode, slotKey));
+const _specLabelMap = { AIML: "AIML", Cloud: "Cloud", FullStack: "Full-Stack" };
+
+function _getSpecLabel(specKey) {
+	return _specLabelMap[specKey] || specKey;
 }
 
-function _renderCourseInfo(courseCode, slotKey) {
-  const content = document.getElementById('sidebar-content');
-  if (!content) return;
-  content.innerHTML = '';
-
-  const course = CURRICULUM.courses[courseCode];
-  if (!course) {
-    content.textContent = `Unknown course: ${courseCode}`;
-    return;
-  }
-
-  const el = document.createElement('div');
-  el.className = 'course-info';
-
-  const title = document.createElement('h2');
-  title.className = 'course-info-title';
-  title.textContent = course.title;
-
-  const hr = document.createElement('hr');
-  hr.className = 'course-info-divider';
-
-  const meta = document.createElement('div');
-  meta.className = 'course-info-meta';
-  meta.textContent = `${courseCode} · ${course.units} units`;
-
-  const desc = document.createElement('p');
-  desc.className = 'course-info-description';
-  desc.textContent = course.description;
-
-  el.appendChild(title);
-  el.appendChild(hr);
-  el.appendChild(meta);
-  el.appendChild(desc);
-
-  if (course.specializationHint) {
-    const hint = document.createElement('p');
-    hint.className = 'specialization-hint';
-    const em = document.createElement('em');
-    em.textContent = course.specializationHint;
-    hint.appendChild(em);
-    el.appendChild(hint);
-  }
-
-  const prereqStatus = getPrereqStatus(courseCode);
-  if (prereqStatus.length > 0) {
-    const prereqSection = document.createElement('div');
-    prereqSection.className = 'prereqs-section';
-
-    const h3 = document.createElement('h3');
-    h3.textContent = 'Prerequisites';
-    prereqSection.appendChild(h3);
-
-    for (const p of prereqStatus) {
-      const item = document.createElement('div');
-      item.className = 'prereq-item';
-
-      const badge = document.createElement('span');
-      badge.className = `prereq-badge ${p.met ? 'met' : 'unmet'}`;
-      badge.textContent = p.met ? '✓' : '✕';
-
-      const name = document.createElement('span');
-      name.textContent = `${p.title} (${p.code})`;
-
-      item.appendChild(badge);
-      item.appendChild(name);
-      prereqSection.appendChild(item);
-    }
-
-    el.appendChild(prereqSection);
-  }
-
-  content.appendChild(el);
-
-  const selectBtn = document.getElementById('select-btn');
-  if (selectBtn) {
-    if (slotKey) {
-      selectBtn.classList.add('is-visible');
-      selectBtn.textContent = STATE.selections[slotKey] === courseCode ? 'Selected ✓' : 'Select';
-      selectBtn.disabled = STATE.selections[slotKey] === courseCode;
-    } else {
-      selectBtn.classList.remove('is-visible');
-    }
-  }
-
-  _updateElectiveCounter(STATE.currentSemester);
-  updateSpecTrackerVisibility();
+// BSc total units (sems 1–6) and Honours extra (sems 7–8).
+function _getUnitTotals() {
+	let bsc = 0,
+		hons = 0;
+	for (const [semNum, semDef] of Object.entries(CURRICULUM.semesters)) {
+		const u = semDef.units || 0;
+		if (parseInt(semNum, 10) <= 6) bsc += u;
+		else hons += u;
+	}
+	return { bsc, hons };
 }
-
-// Grid prompt shown when the grid is open but no card has been clicked yet.
-function renderGridPrompt(slotKey, slotLabel) {
-  STATE.activeSidebarContent = { type: 'grid-prompt', slotKey };
-  swapSidebarContent(() => _renderGridPrompt(slotKey, slotLabel));
-}
-
-function _renderGridPrompt(slotKey, slotLabel) {
-  const content = document.getElementById('sidebar-content');
-  if (!content) return;
-  content.innerHTML = '';
-
-  const el = document.createElement('div');
-  el.className = 'grid-prompt';
-
-  const h2 = document.createElement('h2');
-  h2.textContent = 'Click any course to see its details';
-
-  const p = document.createElement('p');
-  p.textContent = `You are picking: ${slotLabel}`;
-
-  el.appendChild(h2);
-  el.appendChild(p);
-  content.appendChild(el);
-
-  const selectBtn = document.getElementById('select-btn');
-  if (selectBtn) selectBtn.classList.remove('is-visible');
-
-  _updateElectiveCounter(STATE.currentSemester);
-  updateSpecTrackerVisibility();
-}
-
-function renderForkUI() {
-  STATE.activeSidebarContent = { type: 'fork' };
-  swapSidebarContent(() => _renderForkUI());
-}
-
-function _renderForkUI() {
-  const content = document.getElementById('sidebar-content');
-  if (!content) return;
-  content.innerHTML = '';
-
-  const el = document.createElement('div');
-  el.className = 'fork-ui';
-
-  const h2 = document.createElement('h2');
-  h2.textContent = "You've completed Semester VI";
-  el.appendChild(h2);
-
-  const bscOption = document.createElement('div');
-  bscOption.className = 'fork-option' + (STATE.pathType === 'BSC' ? ' is-chosen' : '');
-
-  const bscH3 = document.createElement('h3');
-  bscH3.textContent = 'Complete with BSc';
-
-  const bscP = document.createElement('p');
-  bscP.textContent =
-    'Finish your degree as Bachelor of Science in Computer Science, BITS Pilani. ' +
-    'You will have completed 6 semesters and accumulated all required units.';
-
-  const bscBtn = document.createElement('button');
-  bscBtn.dataset.action = 'fork-choice';
-  bscBtn.dataset.pathtype = 'BSC';
-  bscBtn.textContent = STATE.pathType === 'BSC' ? '✓ BSc chosen' : 'Complete with BSc';
-  bscBtn.disabled = STATE.pathType === 'BSC';
-
-  bscOption.appendChild(bscH3);
-  bscOption.appendChild(bscP);
-  bscOption.appendChild(bscBtn);
-  el.appendChild(bscOption);
-
-  const honsOption = document.createElement('div');
-  honsOption.className = 'fork-option' + (STATE.pathType === 'BSCH' ? ' is-chosen' : '');
-
-  const honsH3 = document.createElement('h3');
-  honsH3.textContent = 'Continue to BSc Honours';
-
-  const honsP = document.createElement('p');
-  honsP.textContent =
-    'Continue for two additional semesters (VII and VIII) toward a Bachelor of Science ' +
-    '(Honours) in Computer Science, BITS Pilani. Choose discipline electives in AIML, ' +
-    'Cloud Computing, or Full-Stack Development to earn a specialization.';
-
-  const honsBtn = document.createElement('button');
-  honsBtn.dataset.action = 'fork-choice';
-  honsBtn.dataset.pathtype = 'BSCH';
-  honsBtn.textContent = STATE.pathType === 'BSCH' ? '✓ Hons chosen' : 'Continue to BSc Hons.';
-  honsBtn.disabled = STATE.pathType === 'BSCH';
-
-  honsOption.appendChild(honsH3);
-  honsOption.appendChild(honsP);
-  honsOption.appendChild(honsBtn);
-  el.appendChild(honsOption);
-
-  content.appendChild(el);
-
-  const selectBtn = document.getElementById('select-btn');
-  if (selectBtn) selectBtn.classList.remove('is-visible');
-  const counter = document.getElementById('elective-counter');
-  if (counter) counter.textContent = '';
-  updateSpecTrackerVisibility();
-}
-
-function renderEndCard(pathType) {
-  STATE.activeSidebarContent = { type: 'end-card', pathType };
-  swapSidebarContent(() => _renderEndCard(pathType));
-}
-
-function _renderEndCard(pathType) {
-  const content = document.getElementById('sidebar-content');
-  if (!content) return;
-  content.innerHTML = '';
-
-  const el = document.createElement('div');
-  el.className = 'end-card';
-
-  const logo = document.createElement('img');
-  logo.className = 'end-card-logo';
-  logo.src = 'assets/bits_logo.svg';
-  logo.alt = 'BITS Pilani';
-  el.appendChild(logo);
-
-  const h2 = document.createElement('h2');
-  h2.textContent = 'Congratulations';
-  el.appendChild(h2);
-
-  const degreeEl = document.createElement('div');
-  degreeEl.className = 'end-degree';
-
-  if (pathType === 'BSC') {
-    degreeEl.textContent = 'Bachelor of Science in Computer Science, BITS Pilani';
-  } else {
-    degreeEl.appendChild(document.createTextNode('Bachelor of Science ('));
-    const honsSpan = document.createElement('span');
-    honsSpan.className = 'honours-highlight';
-    honsSpan.textContent = 'Honours';
-    degreeEl.appendChild(honsSpan);
-    degreeEl.appendChild(document.createTextNode(') in Computer Science, BITS Pilani'));
-  }
-  el.appendChild(degreeEl);
-
-  const choicesSection = document.createElement('div');
-  choicesSection.className = 'end-card-section';
-  const choicesH3 = document.createElement('h3');
-  choicesH3.textContent = 'Your Choices';
-  choicesSection.appendChild(choicesH3);
-
-  for (const [, code] of Object.entries(STATE.selections)) {
-    const course = CURRICULUM.courses[code];
-    const item = document.createElement('div');
-    item.className = 'end-card-item';
-    item.textContent = course ? `${course.title} (${code})` : code;
-    choicesSection.appendChild(item);
-  }
-  el.appendChild(choicesSection);
-
-  const totalUnits = _computeTotalUnits();
-  const unitsSection = document.createElement('div');
-  unitsSection.className = 'end-card-section mt-md';
-  const unitsH3 = document.createElement('h3');
-  unitsH3.textContent = 'Total Units';
-  const unitsVal = document.createElement('div');
-  unitsVal.className = 'end-card-item';
-  unitsVal.textContent = `${totalUnits} units`;
-  unitsSection.appendChild(unitsH3);
-  unitsSection.appendChild(unitsVal);
-  el.appendChild(unitsSection);
-
-  if (pathType === 'BSCH') {
-    const spec = _determineSpecialization();
-    if (spec) {
-      const specEl = document.createElement('div');
-      specEl.className = 'end-specialization mt-lg';
-      specEl.textContent = `Specialization: ${spec.label} ✓`;
-      el.appendChild(specEl);
-    }
-  }
-
-  const switchBtn = document.createElement('button');
-  switchBtn.className = 'end-card-switch-btn';
-  switchBtn.dataset.action = 'show-fork-ui';
-  switchBtn.textContent = pathType === 'BSC' ? 'Switch to Honours path' : 'Exit with BSc instead';
-  el.appendChild(switchBtn);
-
-  content.appendChild(el);
-
-  const selectBtn = document.getElementById('select-btn');
-  if (selectBtn) selectBtn.classList.remove('is-visible');
-  const counter = document.getElementById('elective-counter');
-  if (counter) counter.textContent = '';
-  updateSpecTrackerVisibility();
-}
-
-function renderSpecializationTracker() {
-  const trackerEl = document.getElementById('sidebar-spec-tracker');
-  if (!trackerEl) return;
-  trackerEl.innerHTML = '';
-
-  const h4 = document.createElement('h4');
-  h4.textContent = 'Specialization Progress';
-  trackerEl.appendChild(h4);
-
-  const inPath = getCoursesInPath();
-
-  for (const [specKey, specDef] of Object.entries(CURRICULUM.specializations)) {
-    const count = specDef.mandatoryCourses.filter(c => inPath.has(c)).length;
-    const total = specDef.mandatoryCourses.length;
-    const hasMiniProject = inPath.has(specDef.miniProject);
-    const isAchieved = count === total && hasMiniProject;
-
-    const row = document.createElement('div');
-    row.className = 'spec-row' + (isAchieved ? ' is-achieved' : '');
-
-    const labelEl = document.createElement('span');
-    labelEl.className = 'spec-row-label';
-    const labelMap = { AIML: 'AIML', Cloud: 'Cloud', FullStack: 'Full-Stack' };
-    labelEl.textContent = labelMap[specKey] || specKey;
-
-    const progressBar = document.createElement('div');
-    progressBar.className = 'spec-progress-bar';
-    for (let i = 0; i < total; i++) {
-      const seg = document.createElement('div');
-      seg.className = 'spec-bar-segment' + (i < count ? ' filled' : '');
-      progressBar.appendChild(seg);
-    }
-
-    const countEl = document.createElement('span');
-    countEl.className = 'spec-count';
-    countEl.textContent = `${count}/${total}`;
-
-    row.appendChild(labelEl);
-    row.appendChild(progressBar);
-    row.appendChild(countEl);
-
-    if (isAchieved) {
-      const achievedLabel = document.createElement('span');
-      achievedLabel.className = 'spec-achieved-label';
-      achievedLabel.textContent = 'achievable ✓';
-      row.appendChild(achievedLabel);
-    }
-
-    trackerEl.appendChild(row);
-  }
-}
-
-function updateSpecTrackerVisibility() {
-  const trackerEl = document.getElementById('sidebar-spec-tracker');
-  if (!trackerEl) return;
-  const show = STATE.pathType === 'BSCH' && STATE.currentSemester >= 7;
-  trackerEl.classList.toggle('is-visible', show);
-  if (show) renderSpecializationTracker();
-}
-
-
-// ─── Continue Button ──────────────────────────────────────────────────────────
-
-function updateContinueButton() {
-  const wrapper = document.getElementById('continue-btn-wrapper');
-  const btn = document.getElementById('continue-btn');
-  const hint = document.getElementById('continue-hint');
-  if (!wrapper || !btn || !hint) return;
-
-  const hide = () => {
-    wrapper.classList.remove('is-visible');
-    wrapper.dataset.disabled = 'false';
-  };
-
-  if (STATE.currentSemester === 0) { hide(); return; }
-  if (STATE.currentSemester === 6 && (STATE.forkUIShown || STATE.forkChosen)) { hide(); return; }
-  if (STATE.pathType === 'BSC' && STATE.forkChosen) { hide(); return; }
-
-  wrapper.classList.add('is-visible');
-
-  const complete = isSemesterComplete(STATE.currentSemester);
-
-  if (STATE.currentSemester === 6) {
-    btn.textContent = 'Finish Semester 6';
-  } else if (STATE.currentSemester === 8) {
-    btn.textContent = 'Complete Programme';
-  } else {
-    btn.textContent = `Continue to Semester ${STATE.currentSemester + 1}`;
-  }
-
-  btn.disabled = !complete;
-  wrapper.dataset.disabled = complete ? 'false' : 'true';
-
-  if (!complete) {
-    const missing = _getMissingSlots(STATE.currentSemester);
-    hint.textContent = missing.length > 0 ? `Still needed: ${missing.join(', ')}` : '';
-  } else {
-    hint.textContent = '';
-  }
-}
-
-function isSemesterComplete(semNum) {
-  const semDef = CURRICULUM.semesters[semNum];
-  if (!semDef) return false;
-  for (const opt of semDef.optionals || []) {
-    if (!STATE.selections[opt.slotKey]) return false;
-  }
-  for (const elec of semDef.electives || []) {
-    if (elec.optional) continue;
-    if (!STATE.selections[elec.slotKey]) return false;
-  }
-  return true;
-}
-
-function _getMissingSlots(semNum) {
-  const semDef = CURRICULUM.semesters[semNum];
-  if (!semDef) return [];
-  const missing = [];
-  for (const opt of semDef.optionals || []) {
-    if (!STATE.selections[opt.slotKey]) missing.push(opt.label);
-  }
-  for (const elec of semDef.electives || []) {
-    if (elec.optional) continue;
-    if (!STATE.selections[elec.slotKey]) missing.push(elec.label);
-  }
-  return missing;
-}
-
-
-// ─── Elective Counter ─────────────────────────────────────────────────────────
-
-function _updateElectiveCounter(semNum) {
-  const counter = document.getElementById('elective-counter');
-  if (!counter) return;
-  if (semNum >= 4 && semNum <= 6) {
-    const slots = ['DISCIPLINE_ELECTIVE_1', 'DISCIPLINE_ELECTIVE_2',
-                   'DISCIPLINE_ELECTIVE_3', 'DISCIPLINE_ELECTIVE_4'];
-    const chosen = slots.filter(s => !!STATE.selections[s]).length;
-    counter.textContent = `${chosen}/4 electives chosen`;
-  } else {
-    counter.textContent = '';
-  }
-}
-
-
-// ─── Total Units & Specialization ────────────────────────────────────────────
 
 function _computeTotalUnits() {
-  let total = 0;
-  const inPath = getCoursesInPath();
-  for (const code of inPath) {
-    const course = CURRICULUM.courses[code];
-    if (course) total += course.units;
-  }
-  return total;
+	let total = 0;
+	const inPath = getCoursesInPath();
+	for (const code of inPath) {
+		const course = CURRICULUM.courses[code];
+		if (course) total += course.units;
+	}
+	return total;
 }
 
 function _determineSpecialization() {
-  if (STATE.pathType !== 'BSCH') return null;
-  const inPath = getCoursesInPath();
-  for (const [, specDef] of Object.entries(CURRICULUM.specializations)) {
-    const allMandatory = specDef.mandatoryCourses.every(c => inPath.has(c));
-    const hasMiniProject = inPath.has(specDef.miniProject);
-    if (allMandatory && hasMiniProject) return specDef;
-  }
-  return null;
+	if (STATE.pathType !== "BSCH") return null;
+	const inPath = getCoursesInPath();
+	for (const [, specDef] of Object.entries(CURRICULUM.specializations)) {
+		const allMandatory = specDef.mandatoryCourses.every((c) => inPath.has(c));
+		const hasMiniProject = inPath.has(specDef.miniProject);
+		if (allMandatory && hasMiniProject) return specDef;
+	}
+	return null;
 }
 
-
-// ─── App Entry Point ──────────────────────────────────────────────────────────
-
-function renderApp() {
-  applyTheme();
-
-  if (STATE.currentSemester === 0) {
-    const treeEl = document.getElementById('tree');
-    if (treeEl) {
-      const startNode = document.getElementById('start-node');
-      if (startNode) startNode.style.display = 'flex';
-      const trunkLine = document.getElementById('trunk-line');
-      if (trunkLine) trunkLine.style.display = 'none';
-      treeEl.querySelectorAll('.semester-block').forEach(el => el.remove());
-      const fc = treeEl.querySelector('#fork-container');
-      if (fc) fc.remove();
-    }
-    renderWelcome();
-    updateContinueButton();
-  } else {
-    renderTree();
-    if (STATE.activeSidebarContent) {
-      const ctx = STATE.activeSidebarContent;
-      if (ctx.type === 'course-info') {
-        _renderCourseInfo(ctx.courseCode, ctx.slotKey);
-      } else if (ctx.type === 'fork') {
-        _renderForkUI();
-      } else if (ctx.type === 'end-card') {
-        _renderEndCard(ctx.pathType);
-      } else {
-        _renderSemesterOverview(STATE.currentSemester);
-      }
-    } else {
-      // Reconstruct sidebar after page reload.
-      if (STATE.forkUIShown && !STATE.forkChosen) {
-        _renderForkUI();
-      } else if (STATE.forkChosen && STATE.pathType === 'BSC') {
-        _renderEndCard('BSC');
-      } else {
-        _renderSemesterOverview(STATE.currentSemester);
-      }
-    }
-  }
+// Replaces the card for a slot with a freshly rendered one, swapping it back
+// into the DOM in place (handles the tooltip-wrapper case for locked cards).
+function replaceSlotCard(slotKey) {
+	const card = document.querySelector(`.course-card[data-slot="${slotKey}"]`);
+	if (!card || !card.isConnected) return;
+	const meta = _getSlotMeta(slotKey);
+	const replacement = renderSlotCard(slotKey, meta.label, meta.optional);
+	const wrapper = card.closest(".tooltip-wrapper");
+	// Replace only the card itself (or its wrapper) — never the parent grid.
+	if (wrapper) wrapper.replaceWith(replacement);
+	else card.replaceWith(replacement);
 }
+
+// Targeted update after a course pick: swaps only the changed slot card and
+// re-renders cards whose prereq marks changed. No full-journey rebuild.
+function patchCourseSelection(slotKey, code) {
+	const prevCode = STATE.selections[slotKey];
+	replaceSlotCard(slotKey);
+
+	const touched = document.querySelectorAll(".course-card");
+	for (const el of touched) {
+		const courseCode = el.dataset.course;
+		if (!courseCode || !el.isConnected) continue;
+		const prereqs = [
+			...(CURRICULUM.courses[courseCode]?.prereqs ?? []),
+			...(CURRICULUM.implicitPrereqs[courseCode] ?? []),
+		];
+		// Re-render dependents (their prereqs changed) and prereq cards of the
+		// picked course (they may now be locked).
+		const isDependent =
+			prereqs.includes(code) || (prevCode && prereqs.includes(prevCode));
+		const isPrereqOfPick =
+			(CURRICULUM.courses[code]?.prereqs ?? []).includes(courseCode) ||
+			(prevCode &&
+				(CURRICULUM.courses[prevCode]?.prereqs ?? []).includes(courseCode));
+		if (!isDependent && !isPrereqOfPick) {
+			continue;
+		}
+		if (el.dataset.slot) {
+			replaceSlotCard(el.dataset.slot);
+		} else {
+			const wrapper = el.closest(".tooltip-wrapper");
+			// Replace only the card itself (or its wrapper) — never the parent grid.
+			if (wrapper) wrapper.replaceWith(renderCourseCard(courseCode));
+			else el.replaceWith(renderCourseCard(courseCode));
+		}
+	}
+
+	updateContinueBar();
+	updateElectiveCounter();
+	renderProgressBar();
+}
+
+function isSemesterComplete(semNum) {
+	const semDef = CURRICULUM.semesters[semNum];
+	if (!semDef) return false;
+	for (const opt of semDef.optionals || []) {
+		if (!STATE.selections[opt.slotKey]) return false;
+	}
+	for (const elec of semDef.electives || []) {
+		if (elec.optional) continue;
+		if (!STATE.selections[elec.slotKey]) return false;
+	}
+	return true;
+}
+
+function _getMissingSlots(semNum) {
+	const semDef = CURRICULUM.semesters[semNum];
+	if (!semDef) return [];
+	const missing = [];
+	for (const opt of semDef.optionals || []) {
+		if (!STATE.selections[opt.slotKey]) missing.push(opt.label);
+	}
+	for (const elec of semDef.electives || []) {
+		if (elec.optional) continue;
+		if (!STATE.selections[elec.slotKey]) missing.push(elec.label);
+	}
+	return missing;
+}
+
+function _courseCount(semNum) {
+	const semDef = CURRICULUM.semesters[semNum];
+	if (!semDef) return 0;
+	return (
+		semDef.fixed.length +
+		(semDef.optionals || []).length +
+		(semDef.electives || []).length
+	);
+}
+
+// ─── App Entry Point ─────────────────────────────────────────────────────────
 
 function applyTheme() {
-  document.body.classList.toggle('theme-dark', STATE.theme === 'dark');
-  document.body.classList.toggle('theme-light', STATE.theme !== 'dark');
+	document.body.classList.toggle("theme-dark", STATE.theme === "dark");
+	document.body.classList.toggle("theme-light", STATE.theme !== "dark");
+}
+
+function renderApp() {
+	applyTheme();
+	const content = document.getElementById("page-content");
+	if (!content) return;
+
+	if (STATE.currentSemester === 0) {
+		renderStartScreen();
+	} else {
+		renderJourney();
+	}
+	updateContinueBar();
+	renderProgressBar();
+}
+
+// ─── Start Screen ────────────────────────────────────────────────────────────
+
+function renderStartScreen() {
+	const content = document.getElementById("page-content");
+	if (!content) return;
+	content.replaceChildren();
+
+	const journey = document.createElement("div");
+	journey.className = "path-journey";
+
+	const hero = document.createElement("div");
+	hero.className = "hero";
+
+	const h1 = document.createElement("h1");
+	h1.textContent = "Plan your BSc CS at BITS Pilani";
+	hero.appendChild(h1);
+
+	const lead = document.createElement("p");
+	lead.className = "hero-lead";
+	lead.textContent =
+		"Pick electives semester by semester. Prerequisites are checked as you go. " +
+		"Your progress is saved in your browser.";
+	hero.appendChild(lead);
+
+	const begin = document.createElement("button");
+	begin.className = "btn btn-primary btn-lg";
+	begin.dataset.action = "start";
+	begin.textContent = "Start planning";
+	hero.appendChild(begin);
+
+	journey.appendChild(hero);
+
+	// Flat semester list
+	const list = document.createElement("div");
+	list.className = "start-list";
+
+	const listTitle = document.createElement("div");
+	listTitle.className = "start-list-title";
+	listTitle.textContent = "The degree";
+	list.appendChild(listTitle);
+
+	for (let semNum = 1; semNum <= 8; semNum++) {
+		const semDef = CURRICULUM.semesters[semNum];
+		const row = document.createElement("div");
+		row.className = "start-list-row" + (semNum >= 7 ? " is-hons" : "");
+
+		const num = document.createElement("span");
+		num.className = "sl-sem";
+		num.textContent = String(semNum);
+		row.appendChild(num);
+
+		const name = document.createElement("span");
+		name.className = "sl-name";
+		name.textContent = semDef.label;
+		row.appendChild(name);
+
+		const desc = document.createElement("span");
+		desc.className = "sl-desc";
+		if (semNum >= 7) {
+			desc.textContent = "Honours path — discipline & open electives";
+		} else if (semNum === 6) {
+			desc.textContent = `${_courseCount(semNum)} courses · ${semDef.units}u · decision point`;
+		} else {
+			desc.textContent = `${_courseCount(semNum)} courses · ${semDef.units}u`;
+		}
+		row.appendChild(desc);
+		list.appendChild(row);
+	}
+	journey.appendChild(list);
+	content.appendChild(journey);
+}
+
+// ─── Journey (in-path rendering) ─────────────────────────────────────────────
+
+function renderJourney() {
+	const content = document.getElementById("page-content");
+	if (!content) return;
+	content.replaceChildren();
+
+	const journey = document.createElement("div");
+	journey.className = "path-journey";
+
+	const revealed = [...STATE.revealedSemesters].sort((a, b) => a - b);
+
+	// Sems 1–6
+	for (const semNum of revealed) {
+		if (semNum <= 6) journey.appendChild(renderSemesterSection(semNum));
+	}
+
+	// Fork decision (after Sem 6)
+	const forkVisible = STATE.forkUIShown || STATE.forkChosen;
+	if (forkVisible) journey.appendChild(renderForkSection());
+
+	// Locked future rows
+	if (STATE.pathType === "BSCH") {
+		if (STATE.currentSemester < 8) {
+			for (
+				let semNum = Math.max(7, STATE.currentSemester + 1);
+				semNum <= 8;
+				semNum++
+			) {
+				journey.appendChild(renderLockedSemesterRow(semNum));
+			}
+		}
+	} else if (!forkVisible && STATE.currentSemester < 6) {
+		for (let semNum = STATE.currentSemester + 1; semNum <= 6; semNum++) {
+			journey.appendChild(renderLockedSemesterRow(semNum));
+		}
+	}
+
+	// Honours continuation
+	if (STATE.pathType === "BSCH") {
+		journey.appendChild(renderSpecProgressSection());
+		for (const semNum of revealed) {
+			if (semNum >= 7) journey.appendChild(renderSemesterSection(semNum));
+		}
+		if (STATE.currentSemester >= 8 && isSemesterComplete(8)) {
+			journey.appendChild(renderEndSection("BSCH"));
+		}
+	} else if (STATE.forkChosen && STATE.pathType === "BSC") {
+		journey.appendChild(renderEndSection("BSC"));
+	}
+
+	content.appendChild(journey);
+	updateContinueBar();
+	updateElectiveCounter();
+}
+
+// Builds a semester section: header row + course grid.
+function renderSemesterSection(semNum) {
+	const semDef = CURRICULUM.semesters[semNum];
+	const section = document.createElement("section");
+	section.className = "sem-section";
+	section.dataset.semester = semNum;
+
+	const isPast = semNum < STATE.currentSemester;
+	const isCurrent = semNum === STATE.currentSemester;
+	const collapsed = isPast && !expandedSemesters.has(semNum);
+	if (collapsed) section.classList.add("is-collapsed");
+	if (isPast) section.classList.add("is-past");
+	if (isCurrent) section.classList.add("is-current");
+
+	// Header
+	const head = document.createElement("div");
+	head.className = "sem-head";
+	head.setAttribute("role", "button");
+	head.setAttribute("tabindex", "0");
+	head.dataset.action = "toggle-sem";
+	head.dataset.semester = semNum;
+
+	const chevron = document.createElement("span");
+	chevron.className = "sem-chevron";
+	chevron.setAttribute("aria-hidden", "true");
+	chevron.appendChild(makeIcon("m6 9 6 6 6-6"));
+	head.appendChild(chevron);
+
+	const name = document.createElement("h2");
+	name.className = "sem-name";
+	name.textContent = semDef.label;
+	head.appendChild(name);
+
+	const meta = document.createElement("div");
+	meta.className = "sem-meta";
+
+	const units = document.createElement("span");
+	units.className = "sem-units";
+	units.textContent = `${semDef.units}u`;
+	meta.appendChild(units);
+
+	const status = document.createElement("span");
+	status.className = "sem-status";
+	status.textContent = isCurrent ? "current" : isPast ? "done" : "next";
+	meta.appendChild(status);
+
+	const count = document.createElement("span");
+	count.className = "sem-count";
+	count.textContent = `${_courseCount(semNum)} courses`;
+	meta.appendChild(count);
+
+	head.appendChild(meta);
+	section.appendChild(head);
+
+	// Body: course grid
+	const body = document.createElement("div");
+	body.className = "sem-body";
+
+	const grid = document.createElement("div");
+	grid.className = "course-grid";
+
+	for (const code of semDef.fixed) {
+		grid.appendChild(renderCourseCard(code));
+	}
+	for (const opt of semDef.optionals || []) {
+		grid.appendChild(renderSlotCard(opt.slotKey, opt.label));
+	}
+	for (const elec of semDef.electives || []) {
+		grid.appendChild(renderSlotCard(elec.slotKey, elec.label, elec.optional));
+	}
+
+	body.appendChild(grid);
+
+	// Inline Continue CTA — only for the current semester, right after its cards
+	if (isCurrent) {
+		const block = document.createElement("div");
+		block.className = "sem-continue";
+		block.id = "continue-block";
+
+		const status = document.createElement("div");
+		status.className = "sem-continue-status";
+		const counter = document.createElement("span");
+		counter.id = "elective-counter";
+		status.appendChild(counter);
+		const hint = document.createElement("span");
+		hint.id = "continue-hint";
+		status.appendChild(hint);
+		block.appendChild(status);
+
+		const btn = document.createElement("button");
+		btn.id = "continue-btn";
+		btn.dataset.action = "continue";
+		btn.disabled = true;
+		btn.textContent = "Continue";
+		block.appendChild(btn);
+
+		body.appendChild(block);
+	}
+
+	section.appendChild(body);
+	return section;
+}
+
+// Locked row for a semester the user hasn't reached yet.
+function renderLockedSemesterRow(semNum) {
+	const semDef = CURRICULUM.semesters[semNum];
+	const row = document.createElement("div");
+	row.className = "sem-locked";
+	row.dataset.semester = semNum;
+
+	const node = document.createElement("span");
+	node.setAttribute("aria-hidden", "true");
+
+	const ico = document.createElement("span");
+	ico.className = "lock-ico";
+	ico.setAttribute("aria-hidden", "true");
+	ico.appendChild(
+		makeSvg(
+			[
+				{
+					tag: "rect",
+					attrs: { width: "18", height: "11", x: "3", y: "11", rx: "2" },
+				},
+				{ tag: "path", attrs: { d: "M7 11V7a5 5 0 0 1 10 0v4" } },
+			],
+			2.2,
+		),
+	);
+	node.appendChild(ico);
+	row.appendChild(node);
+
+	const name = document.createElement("span");
+	name.className = "sem-locked-name";
+	name.textContent = semDef.label;
+	row.appendChild(name);
+
+	const note = document.createElement("span");
+	note.className = "sem-locked-note";
+	note.textContent =
+		STATE.pathType === "BSCH"
+			? "Complete the previous semester to unlock"
+			: semNum === 6
+				? `Complete Semester ${semNum - 1} to reach the fork`
+				: `Complete Semester ${semNum - 1} to unlock`;
+	row.appendChild(note);
+
+	return row;
+}
+
+// ─── Course Cards ────────────────────────────────────────────────────────────
+
+function renderCourseCard(courseCode) {
+	const course = CURRICULUM.courses[courseCode];
+	const card = document.createElement("div");
+	card.className =
+		"course-card" + (course?.type === "project" ? " is-project" : "");
+	card.setAttribute("role", "button");
+	card.setAttribute("tabindex", "0");
+	card.dataset.action = "course-info";
+	card.dataset.course = courseCode;
+
+	const top = document.createElement("div");
+	top.className = "cc-top";
+
+	const index = document.createElement("span");
+	index.className = "cc-index";
+	top.appendChild(index);
+
+	const title = document.createElement("span");
+	title.className = "cc-title";
+	title.textContent = course ? course.title : courseCode;
+	top.appendChild(title);
+
+	card.appendChild(top);
+
+	const meta = document.createElement("div");
+	meta.className = "cc-meta";
+	const codeEl = document.createElement("code");
+	codeEl.textContent = courseCode;
+	meta.appendChild(codeEl);
+	meta.appendChild(
+		document.createTextNode(`· ${course ? course.units + "u" : ""}`),
+	);
+	card.appendChild(meta);
+
+	// Prereq status — plain text lines
+	const prereqLines = buildPrereqLines(courseCode);
+	if (prereqLines) card.appendChild(prereqLines);
+
+	return card;
+}
+
+// Renders prereq status as plain text lines, or null if the course has none.
+function buildPrereqLines(courseCode) {
+	const prereqStatus = getPrereqStatus(courseCode);
+	if (prereqStatus.length === 0) return null;
+	const lines = document.createElement("div");
+	lines.className = "cc-prereqs";
+	for (const p of prereqStatus) {
+		const line = document.createElement("div");
+		const label = document.createElement("span");
+		label.className = "label";
+		const text = document.createElement("span");
+		text.textContent =
+			p.title + (p.semesterFixed && !p.met ? ` (Sem ${p.semesterFixed})` : "");
+		if (p.met) {
+			line.className = "prereq-line met";
+			label.textContent = "Met:";
+		} else if (isPrereqBlocking(p)) {
+			line.className = "prereq-line blocking";
+			label.textContent = "Missing:";
+		} else {
+			line.className = "prereq-line upcoming";
+			label.textContent = "Upcoming:";
+		}
+		line.appendChild(label);
+		line.appendChild(text);
+		lines.appendChild(line);
+	}
+	return lines;
+}
+
+// Slot card — empty (choose) or filled (chosen course).
+function renderSlotCard(slotKey, slotLabel, isOptional = false) {
+	const selectedCode = STATE.selections[slotKey];
+	const row = document.createElement("div");
+	row.className = "course-row";
+	row.style.display = "contents";
+
+	if (selectedCode) {
+		const course = CURRICULUM.courses[selectedCode];
+		const locked = isSlotLocked(slotKey);
+
+		const card = document.createElement("div");
+		card.className = "course-card is-filled" + (locked ? " is-locked" : "");
+		card.setAttribute("role", "button");
+		card.setAttribute("tabindex", locked ? "-1" : "0");
+		card.dataset.action = "course-info";
+		card.dataset.course = selectedCode;
+		card.dataset.slot = slotKey;
+
+		const top = document.createElement("div");
+		top.className = "cc-top";
+		const index = document.createElement("span");
+		index.className = "cc-index";
+		top.appendChild(index);
+		const title = document.createElement("span");
+		title.className = "cc-title";
+		title.textContent = course ? course.title : selectedCode;
+		top.appendChild(title);
+		card.appendChild(top);
+
+		const meta = document.createElement("div");
+		meta.className = "cc-meta";
+		const codeEl = document.createElement("code");
+		codeEl.textContent = selectedCode;
+		meta.appendChild(codeEl);
+		meta.appendChild(
+			document.createTextNode(` · ${course ? course.units + "u" : ""}`),
+		);
+		card.appendChild(meta);
+
+		const slotLabelEl = document.createElement("div");
+		slotLabelEl.className = "cc-slot-label";
+		slotLabelEl.textContent = slotLabel + (isOptional ? " · optional" : "");
+		card.appendChild(slotLabelEl);
+
+		if (!locked) {
+			const changeEl = document.createElement("span");
+			changeEl.className = "cc-change";
+			changeEl.textContent = "Change";
+			card.appendChild(changeEl);
+		}
+
+		if (locked) {
+			const dependents = Object.values(STATE.selections).filter((code) =>
+				(CURRICULUM.courses[code]?.prereqs ?? []).includes(selectedCode),
+			);
+			const depNames = dependents
+				.map((c) => CURRICULUM.courses[c]?.title ?? c)
+				.join(", ");
+			const wrapper = document.createElement("div");
+			wrapper.className = "tooltip-wrapper";
+			const tooltip = document.createElement("div");
+			tooltip.className = "tooltip-box";
+			tooltip.textContent = `Can't change — ${depNames} in your path depends on this.`;
+			wrapper.appendChild(card);
+			wrapper.appendChild(tooltip);
+			return wrapper;
+		}
+
+		return card;
+	}
+
+	const card = document.createElement("div");
+	card.className = "course-card is-slot";
+	card.setAttribute("role", "button");
+	card.setAttribute("tabindex", "0");
+	card.dataset.action = "open-grid";
+	card.dataset.slot = slotKey;
+
+	const title = document.createElement("span");
+	title.className = "cc-title";
+	title.textContent = slotLabel + (isOptional ? " · optional" : "");
+	card.appendChild(title);
+
+	const hint = document.createElement("span");
+	hint.className = "cc-hint";
+	const hintLabel = document.createElement("span");
+	hintLabel.textContent = "Choose course";
+	hint.appendChild(hintLabel);
+	card.appendChild(hint);
+
+	return card;
+}
+
+// ─── Fork Decision Section ───────────────────────────────────────────────────
+
+function renderForkSection() {
+	const { bsc, hons } = _getUnitTotals();
+	const section = document.createElement("section");
+	section.className = "fork-section";
+	section.id = "fork-section";
+
+	const banner = document.createElement("div");
+	banner.className = "fork-banner";
+	banner.textContent = "You have completed Semester VI";
+	section.appendChild(banner);
+
+	const h2 = document.createElement("h2");
+	h2.textContent = "How would you like to finish?";
+	section.appendChild(h2);
+
+	const lead = document.createElement("p");
+	lead.className = "fork-lead";
+	lead.textContent =
+		"Choose how your degree ends. You can switch your decision later.";
+	section.appendChild(lead);
+
+	const cards = document.createElement("div");
+	cards.className = "fork-cards";
+
+	const options = [
+		{
+			pathType: "BSC",
+			title: "Finish with BSc",
+			desc: "Graduate after six semesters as a Bachelor of Science in Computer Science.",
+			bullets: ["6 semesters", `${bsc} units`, "No specialization"],
+			chosenText: "BSc chosen",
+		},
+		{
+			pathType: "BSCH",
+			title: "Continue to BSc (Honours)",
+			desc: "Two more semesters of deep electives — and a specialization in AIML, Cloud, or Full-Stack.",
+			bullets: ["8 semesters", `${bsc + hons} units`, "Earn a specialization"],
+			chosenText: "Honours chosen",
+		},
+	];
+
+	for (const opt of options) {
+		const chosen = STATE.pathType === opt.pathType;
+		const cardEl = document.createElement("div");
+		cardEl.className = "fork-card" + (chosen ? " is-chosen" : "");
+
+		const h3 = document.createElement("h3");
+		h3.textContent = opt.title;
+		cardEl.appendChild(h3);
+
+		const p = document.createElement("p");
+		p.textContent = opt.desc;
+		cardEl.appendChild(p);
+
+		const ul = document.createElement("ul");
+		for (const b of opt.bullets) {
+			const li = document.createElement("li");
+			li.textContent = b;
+			ul.appendChild(li);
+		}
+		cardEl.appendChild(ul);
+
+		const btn = document.createElement("button");
+		btn.dataset.action = "fork-choice";
+		btn.dataset.pathtype = opt.pathType;
+		btn.textContent = chosen
+			? opt.chosenText
+			: opt.pathType === "BSCH"
+				? "Continue to Honours"
+				: "Finish with BSc";
+		btn.disabled = chosen;
+		btn.className = chosen
+			? "btn btn-ghost"
+			: opt.pathType === "BSCH"
+				? "btn btn-primary"
+				: "btn btn-ghost";
+		cardEl.appendChild(btn);
+
+		cards.appendChild(cardEl);
+	}
+
+	section.appendChild(cards);
+	return section;
+}
+
+// ─── End / Celebration Section ───────────────────────────────────────────────
+
+function renderEndSection(pathType) {
+	const section = document.createElement("section");
+	section.className = "end-section";
+	section.id = "end-section";
+
+	const h2 = document.createElement("h2");
+	h2.textContent = "Congratulations!";
+	section.appendChild(h2);
+
+	const degree = document.createElement("div");
+	degree.className = "end-degree";
+	if (pathType === "BSC") {
+		degree.textContent = "Bachelor of Science in Computer Science, BITS Pilani";
+	} else {
+		degree.appendChild(document.createTextNode("Bachelor of Science ("));
+		const honsSpan = document.createElement("span");
+		honsSpan.className = "honours-highlight";
+		honsSpan.textContent = "Honours";
+		degree.appendChild(honsSpan);
+		degree.appendChild(
+			document.createTextNode(") in Computer Science, BITS Pilani"),
+		);
+	}
+	section.appendChild(degree);
+
+	const stats = document.createElement("div");
+	stats.className = "end-stats";
+
+	const units = document.createElement("span");
+	units.textContent = `${_computeTotalUnits()} units`;
+	stats.appendChild(units);
+
+	const sem = document.createElement("span");
+	sem.textContent = pathType === "BSC" ? "6 semesters" : "8 semesters";
+	stats.appendChild(sem);
+
+	const spec = _determineSpecialization();
+	if (spec) {
+		const specEl = document.createElement("span");
+		specEl.textContent = `Specialization: ${spec.label}`;
+		stats.appendChild(specEl);
+	} else if (pathType === "BSCH") {
+		const specEl = document.createElement("span");
+		specEl.textContent = "No specialization";
+		stats.appendChild(specEl);
+	}
+	section.appendChild(stats);
+
+	// Choices grouped by semester
+	const choices = document.createElement("div");
+	choices.className = "end-choices";
+	const h3 = document.createElement("h3");
+	h3.textContent = "Your path at a glance";
+	choices.appendChild(h3);
+
+	const revealed = [...STATE.revealedSemesters].sort((a, b) => a - b);
+	for (const semNum of revealed) {
+		const semDef = CURRICULUM.semesters[semNum];
+		const group = document.createElement("div");
+		group.className = "end-choice-group";
+
+		const h4 = document.createElement("h4");
+		h4.textContent = semDef.label;
+		group.appendChild(h4);
+
+		const ul = document.createElement("ul");
+		const addItem = (text, muted) => {
+			const li = document.createElement("li");
+			li.textContent = text;
+			if (muted) li.style.color = "var(--color-ink-faint)";
+			ul.appendChild(li);
+		};
+		for (const code of semDef.fixed) {
+			const course = CURRICULUM.courses[code];
+			addItem(course ? `${course.title} (${code})` : code, false);
+		}
+		for (const opt of semDef.optionals || []) {
+			const selected = STATE.selections[opt.slotKey];
+			const course = selected ? CURRICULUM.courses[selected] : null;
+			addItem(
+				course ? `${course.title} (${selected})` : `${opt.label} — not chosen`,
+				!course,
+			);
+		}
+		for (const elec of semDef.electives || []) {
+			const selected = STATE.selections[elec.slotKey];
+			const course = selected ? CURRICULUM.courses[selected] : null;
+			addItem(
+				course ? `${course.title} (${selected})` : `${elec.label} — not chosen`,
+				!course,
+			);
+		}
+		group.appendChild(ul);
+		choices.appendChild(group);
+	}
+	section.appendChild(choices);
+
+	// Actions
+	const actions = document.createElement("div");
+	actions.className = "end-actions";
+
+	const restart = document.createElement("button");
+	restart.className = "btn btn-ghost";
+	restart.dataset.action = "start-over";
+	restart.textContent = "Start a new path";
+	actions.appendChild(restart);
+
+	const switchBtn = document.createElement("button");
+	switchBtn.className = "end-switch-btn";
+	switchBtn.dataset.action = "switch-path";
+	switchBtn.textContent =
+		pathType === "BSC"
+			? "Switch to the Honours path"
+			: "Exit with a BSc instead";
+	actions.appendChild(switchBtn);
+
+	section.appendChild(actions);
+	return section;
+}
+
+// ─── Specialization Progress Section ─────────────────────────────────────────
+
+function renderSpecProgressSection() {
+	const section = document.createElement("section");
+	section.className = "spec-section";
+
+	const h3 = document.createElement("h3");
+	h3.textContent = "Specialization progress";
+	section.appendChild(h3);
+
+	const inPath = getCoursesInPath();
+
+	for (const [specKey, specDef] of Object.entries(CURRICULUM.specializations)) {
+		const count = specDef.mandatoryCourses.filter((c) => inPath.has(c)).length;
+		const total = specDef.mandatoryCourses.length;
+		const hasMiniProject = inPath.has(specDef.miniProject);
+		const isAchieved = count === total && hasMiniProject;
+
+		const row = document.createElement("div");
+		row.className = "spec-row" + (isAchieved ? " is-achieved" : "");
+
+		const labelEl = document.createElement("span");
+		labelEl.className = "spec-row-label";
+		labelEl.textContent = _getSpecLabel(specKey);
+		row.appendChild(labelEl);
+
+		const bar = document.createElement("div");
+		bar.className = "spec-progress-bar";
+		for (let i = 0; i < total; i++) {
+			const seg = document.createElement("div");
+			seg.className = "spec-bar-segment" + (i < count ? " filled" : "");
+			bar.appendChild(seg);
+		}
+		row.appendChild(bar);
+
+		const countEl = document.createElement("span");
+		countEl.className = "spec-count";
+		countEl.textContent = `${count}/${total}`;
+		row.appendChild(countEl);
+
+		if (isAchieved) {
+			const achieved = document.createElement("span");
+			achieved.className = "spec-achieved-label";
+			achieved.textContent = "Achieved";
+			row.appendChild(achieved);
+		}
+
+		section.appendChild(row);
+	}
+
+	const note = document.createElement("p");
+	note.className = "spec-note";
+	note.textContent =
+		"Take all four specialization courses plus the Mini Project to earn the specialization.";
+	section.appendChild(note);
+
+	return section;
+}
+
+// ─── Progress Bar ────────────────────────────────────────────────────────────
+
+function renderProgressBar() {
+	const bar = document.getElementById("progress-bar");
+	if (!bar) return;
+	bar.replaceChildren();
+
+	if (STATE.currentSemester === 0) return;
+
+	const endNum =
+		STATE.pathType === "BSCH" ? 8 : STATE.pathType === "BSC" ? 6 : 8;
+	const { bsc, hons } = _getUnitTotals();
+	const total = STATE.pathType === "BSCH" ? bsc + hons : bsc;
+
+	const chip = document.createElement("div");
+	chip.className = "progress-chip";
+
+	const dots = document.createElement("span");
+	dots.className = "progress-dots";
+	dots.setAttribute("role", "img");
+	dots.setAttribute(
+		"aria-label",
+		`Progress: semester ${STATE.currentSemester} of ${endNum}`,
+	);
+
+	for (let i = 1; i <= endNum; i++) {
+		const dot = document.createElement("span");
+		dot.className =
+			"progress-dot" +
+			(i < STATE.currentSemester
+				? " is-done"
+				: i === STATE.currentSemester
+					? " is-current"
+					: " is-locked");
+		dot.setAttribute("aria-label", `Semester ${i}`);
+		dot.title = CURRICULUM.semesters[i]?.label ?? `Semester ${i}`;
+		dots.appendChild(dot);
+	}
+	chip.appendChild(dots);
+
+	let doneUnits = 0;
+	for (let i = 1; i < STATE.currentSemester; i++) {
+		doneUnits += CURRICULUM.semesters[i]?.units ?? 0;
+	}
+
+	const text = document.createElement("span");
+	text.className = "progress-text";
+	text.textContent = `Sem ${STATE.currentSemester} · ${doneUnits}/${total}u`;
+	chip.appendChild(text);
+
+	if (STATE.pathType) {
+		const type = document.createElement("span");
+		type.className = "chip chip-accent";
+		type.textContent = STATE.pathType === "BSCH" ? "BSc (Hons)" : "BSc";
+		chip.appendChild(type);
+	}
+
+	bar.appendChild(chip);
+}
+
+// ─── Inline Continue Block ───────────────────────────────────────────────────
+
+function updateContinueBar() {
+	const wrapper = document.getElementById("continue-block");
+	const btn = document.getElementById("continue-btn");
+	const hint = document.getElementById("continue-hint");
+	if (!wrapper || !btn || !hint) return;
+
+	const hide = () => {
+		wrapper.style.display = "none";
+	};
+
+	if (STATE.currentSemester === 0) {
+		hide();
+		return;
+	}
+
+	// The end section is rendered by renderJourney; once it exists in the DOM
+	// the continue block is no longer needed.
+	const endShown = !!document.getElementById("end-section");
+	if (endShown) {
+		hide();
+		return;
+	}
+
+	if (STATE.currentSemester === 6 && (STATE.forkUIShown || STATE.forkChosen)) {
+		hide();
+		return;
+	}
+
+	wrapper.style.display = "flex";
+
+	const complete = isSemesterComplete(STATE.currentSemester);
+
+	if (STATE.currentSemester === 6) {
+		btn.textContent = "Finish Semester 6";
+	} else if (STATE.currentSemester === 8) {
+		btn.textContent = "Complete Programme";
+	} else {
+		btn.textContent = `Continue to Semester ${STATE.currentSemester + 1}`;
+	}
+
+	btn.disabled = !complete;
+
+	hint.replaceChildren();
+	if (!complete) {
+		const missing = _getMissingSlots(STATE.currentSemester);
+		for (const label of missing) {
+			const chip = document.createElement("span");
+			chip.className = "chip chip-neutral";
+			chip.textContent = label;
+			hint.appendChild(chip);
+		}
+	} else {
+		const chip = document.createElement("span");
+		chip.className = "chip chip-met";
+		chip.textContent = "All choices made";
+		hint.appendChild(chip);
+	}
+}
+
+// Elective counter shown in the inline continue block during Sems 4–6.
+function updateElectiveCounter() {
+	const counter = document.getElementById("elective-counter");
+	if (!counter) return;
+	if (
+		STATE.currentSemester >= 4 &&
+		STATE.currentSemester <= 6 &&
+		STATE.currentSemester !== 0
+	) {
+		const slots = [
+			"DISCIPLINE_ELECTIVE_1",
+			"DISCIPLINE_ELECTIVE_2",
+			"DISCIPLINE_ELECTIVE_3",
+			"DISCIPLINE_ELECTIVE_4",
+		];
+		const chosen = slots.filter((s) => !!STATE.selections[s]).length;
+		counter.textContent = `${chosen}/4 electives chosen`;
+	} else {
+		counter.textContent = "";
+	}
+}
+
+// ─── Modals ──────────────────────────────────────────────────────────────────
+
+function openModal(node) {
+	closeModal();
+	lastFocusedEl = document.activeElement;
+	document.body.appendChild(node);
+	openModalEl = node;
+	requestAnimationFrame(() => node.classList.add("is-open"));
+	const first = node.querySelector(
+		'.picker-search, .modal-close, button, input, [tabindex]:not([tabindex="-1"])',
+	);
+	if (first && typeof first.focus === "function") first.focus();
+}
+
+function closeModal() {
+	if (openModalEl) {
+		openModalEl.remove();
+		openModalEl = null;
+	}
+	if (typeof hideInfoTip === "function") hideInfoTip();
+	if (
+		lastFocusedEl &&
+		lastFocusedEl.isConnected &&
+		typeof lastFocusedEl.focus === "function"
+	) {
+		lastFocusedEl.focus();
+	}
+}
+
+function isModalOpen() {
+	return openModalEl !== null;
+}
+
+function getOpenModal() {
+	return openModalEl;
+}
+
+// The actual .modal node inside the open backdrop (or the node itself).
+function getOpenModalNode() {
+	const bd = getOpenModal();
+	if (!bd) return null;
+	return bd.classList.contains("modal") ? bd : bd.querySelector(".modal");
+}
+
+// ── Course detail modal ──
+
+function renderCourseDetailModal(courseCode, slotKey) {
+	const course = CURRICULUM.courses[courseCode];
+	if (!course) return;
+
+	const backdrop = document.createElement("div");
+	backdrop.className = "modal-backdrop";
+	backdrop.dataset.action = "close-modal";
+
+	const modal = document.createElement("div");
+	modal.className = "modal";
+	modal.setAttribute("role", "dialog");
+	modal.setAttribute("aria-modal", "true");
+	modal.setAttribute("aria-label", course.title);
+
+	const header = document.createElement("div");
+	header.className = "modal-header";
+
+	const headerText = document.createElement("div");
+	const h2 = document.createElement("h2");
+	h2.textContent = course.title;
+	headerText.appendChild(h2);
+
+	if (slotKey) {
+		const context = document.createElement("p");
+		context.className = "modal-context";
+		context.textContent = `Picked for: ${_getSlotLabel(slotKey)} · ${_getSlotSemester(slotKey).label}`;
+		headerText.appendChild(context);
+	}
+	header.appendChild(headerText);
+
+	const closeBtn = makeModalCloseButton();
+	header.appendChild(closeBtn);
+	modal.appendChild(header);
+
+	const body = document.createElement("div");
+	body.className = "modal-body";
+
+	const meta = document.createElement("div");
+	meta.className = "modal-meta";
+	const codeChip = document.createElement("span");
+	codeChip.className = "chip chip-neutral";
+	const codeEl = document.createElement("code");
+	codeEl.textContent = courseCode;
+	codeChip.appendChild(codeEl);
+	meta.appendChild(codeChip);
+
+	const unitsChip = document.createElement("span");
+	unitsChip.className = "chip chip-neutral";
+	unitsChip.textContent = `${course.units} units`;
+	meta.appendChild(unitsChip);
+
+	const typeChip = document.createElement("span");
+	typeChip.className =
+		course.type === "project" ? "chip chip-accent" : "chip chip-neutral";
+	typeChip.textContent = _getTypeLabel(course.type);
+	meta.appendChild(typeChip);
+	body.appendChild(meta);
+
+	const desc = document.createElement("p");
+	desc.className = "modal-desc";
+	desc.textContent = course.description;
+	body.appendChild(desc);
+
+	if (course.specializationHint) {
+		const hint = document.createElement("div");
+		hint.className = "spec-hint";
+		hint.textContent = course.specializationHint;
+		body.appendChild(hint);
+	}
+
+	const prereqStatus = getPrereqStatus(courseCode);
+	if (prereqStatus.length > 0) {
+		const section = document.createElement("div");
+		section.className = "modal-section";
+		const h3 = document.createElement("h3");
+		h3.textContent = "Prerequisites";
+		section.appendChild(h3);
+
+		for (const p of prereqStatus) {
+			const item = document.createElement("div");
+			if (p.met) {
+				item.className = "prereq-item met";
+			} else if (isPrereqBlocking(p)) {
+				item.className = "prereq-item blocking";
+			} else {
+				item.className = "prereq-item upcoming";
+			}
+
+			const badge = document.createElement("span");
+			badge.className = `prereq-badge ${p.met ? "met" : isPrereqBlocking(p) ? "blocking" : "upcoming"}`;
+			badge.textContent = p.met
+				? "Met"
+				: isPrereqBlocking(p)
+					? "Missing"
+					: "Upcoming";
+
+			const name = document.createElement("span");
+			name.textContent = `${p.title} (${p.code})`;
+			if (!p.met && !isPrereqBlocking(p) && p.semesterFixed) {
+				name.textContent += ` — taken in Semester ${p.semesterFixed}`;
+			}
+
+			item.appendChild(badge);
+			item.appendChild(name);
+			section.appendChild(item);
+		}
+		body.appendChild(section);
+	}
+
+	// Actions
+	if (slotKey) {
+		const locked = isSlotLocked(slotKey);
+		if (locked) {
+			const dependents = Object.values(STATE.selections).filter((code) =>
+				(CURRICULUM.courses[code]?.prereqs ?? []).includes(courseCode),
+			);
+			const depNames = dependents
+				.map((c) => CURRICULUM.courses[c]?.title ?? c)
+				.join(", ");
+			const note = document.createElement("div");
+			note.className = "modal-lock-note";
+			note.textContent = `Locked — can't change this choice because ${depNames} in your path depends on it.`;
+			body.appendChild(note);
+		} else {
+			const actions = document.createElement("div");
+			actions.className = "modal-actions";
+			const changeBtn = document.createElement("button");
+			changeBtn.className = "btn btn-primary";
+			changeBtn.dataset.action = "change-course";
+			changeBtn.dataset.slot = slotKey;
+			changeBtn.textContent = "Change course";
+			actions.appendChild(changeBtn);
+			body.appendChild(actions);
+		}
+	}
+
+	modal.appendChild(body);
+	backdrop.appendChild(modal);
+	openModal(backdrop);
+}
+
+// ── Course picker modal ──
+
+function renderPickerModal(slotKey) {
+	const slotLabel = _getSlotLabel(slotKey);
+	const semInfo = _getSlotSemester(slotKey);
+	const { courses, tabType } = getPoolForSlot(slotKey);
+
+	const backdrop = document.createElement("div");
+	backdrop.className = "modal-backdrop";
+	backdrop.dataset.action = "close-modal";
+
+	const modal = document.createElement("div");
+	modal.className = "modal is-picker";
+	modal.setAttribute("role", "dialog");
+	modal.setAttribute("aria-modal", "true");
+	modal.dataset.slot = slotKey;
+	modal.dataset.tab = "All";
+	modal.dataset.search = "";
+	modal.setAttribute("aria-label", `Choose ${slotLabel}`);
+
+	const header = document.createElement("div");
+	header.className = "modal-header";
+
+	const headerText = document.createElement("div");
+	const h2 = document.createElement("h2");
+	h2.textContent = `Choose · ${slotLabel}`;
+	headerText.appendChild(h2);
+	const context = document.createElement("p");
+	context.className = "modal-context";
+	context.textContent = `${semInfo.label} · ${courses.length} courses available`;
+	headerText.appendChild(context);
+	header.appendChild(headerText);
+
+	const closeBtn = makeModalCloseButton();
+	header.appendChild(closeBtn);
+	modal.appendChild(header);
+
+	const toolbar = document.createElement("div");
+	toolbar.className = "picker-toolbar";
+
+	const search = document.createElement("input");
+	search.className = "picker-search";
+	search.type = "search";
+	search.placeholder = "Search by course name or code…";
+	search.setAttribute("aria-label", "Search courses");
+	toolbar.appendChild(search);
+
+	if (tabType !== "none" && tabType !== "open_only") {
+		const tabsEl = document.createElement("div");
+		tabsEl.className = "grid-tabs";
+		const tabs =
+			tabType === "mixed"
+				? ["All", "AIML", "Cloud", "Full-Stack", "Other", "Open Elective"]
+				: ["All", "AIML", "Cloud", "Full-Stack", "Other"];
+		for (const tab of tabs) {
+			const btn = document.createElement("button");
+			btn.className = "grid-tab" + (tab === "All" ? " is-active" : "");
+			btn.dataset.tab = tab;
+			btn.dataset.action = "grid-tab";
+			btn.textContent = tab;
+			tabsEl.appendChild(btn);
+		}
+		toolbar.appendChild(tabsEl);
+	}
+	modal.appendChild(toolbar);
+
+	const body = document.createElement("div");
+	body.className = "modal-body";
+	const cards = document.createElement("div");
+	cards.className = "picker-cards";
+	body.appendChild(cards);
+	modal.appendChild(body);
+
+	const footer = document.createElement("p");
+	footer.className = "picker-footer-note";
+	footer.textContent =
+		"Click a course to add it — you can change it later from your path.";
+	modal.appendChild(footer);
+
+	backdrop.appendChild(modal);
+	openModal(backdrop);
+	renderPickerCards(modal);
+}
+
+// Re-renders the card grid inside an open picker modal, honoring tab + search.
+function renderPickerCards(modalEl) {
+	// Normalize: state lives on the .modal node, handlers may pass the backdrop.
+	modalEl =
+		modalEl.classList.contains("modal")
+			? modalEl
+			: modalEl.querySelector(".modal");
+	if (!modalEl) return;
+	if (typeof hideInfoTip === "function") hideInfoTip();
+
+	const slotKey = modalEl.dataset.slot;
+	const activeTab = modalEl.dataset.tab || "All";
+	const q = (modalEl.dataset.search || "").toLowerCase();
+
+	const cardsEl = modalEl.querySelector(".picker-cards");
+	if (!cardsEl) return;
+	cardsEl.replaceChildren();
+
+	const footer = modalEl.querySelector(".picker-footer-note");
+	if (footer)
+		footer.textContent =
+			"Tap a course to select it — hover the info mark for details.";
+
+	const { courses } = getPoolForSlot(slotKey);
+	const selectedCode = STATE.selections[slotKey];
+
+	const list = filterCoursesByTab(courses, activeTab).filter((code) => {
+		if (!q) return true;
+		const course = CURRICULUM.courses[code];
+		const title = course?.title ?? "";
+		return title.toLowerCase().includes(q) || code.toLowerCase().includes(q);
+	});
+
+	// Enabled cards first (selected first), then disabled ones.
+	const withState = list.map((code) => {
+		const prereqStatus = getPrereqStatus(code);
+		const unmet = prereqStatus.filter((p) => !p.met);
+		const isDup = isDuplicateInOtherSlot(code, slotKey);
+		const disabled = unmet.length > 0 || isDup;
+		return { code, unmet, isDup, disabled, isSelected: selectedCode === code };
+	});
+	withState.sort(
+		(a, b) =>
+			Number(a.disabled) - Number(b.disabled) ||
+			Number(b.isSelected) - Number(a.isSelected),
+	);
+
+	if (withState.length === 0) {
+		const empty = document.createElement("p");
+		empty.className = "picker-empty";
+		empty.textContent = q
+			? "No courses match your search."
+			: "No courses available here.";
+		cardsEl.appendChild(empty);
+		return;
+	}
+
+	for (const item of withState) {
+		cardsEl.appendChild(buildPickerCard(item.code, slotKey, item));
+	}
+}
+
+function buildPickerCard(code, slotKey, item) {
+	const course = CURRICULUM.courses[code];
+	const btn = document.createElement("button");
+	btn.type = "button";
+	btn.className = "picker-card" + (item.isSelected ? " is-selected" : "");
+	btn.dataset.action = "choose-course";
+	btn.dataset.course = code;
+	btn.dataset.slot = slotKey;
+	btn.disabled = item.disabled;
+	btn.setAttribute(
+		"aria-label",
+		item.isSelected ? `${course.title} — currently chosen` : course.title,
+	);
+
+	// Info mark — hover (or tap) shows a description tooltip
+	const info = document.createElement("span");
+	info.className = "picker-info";
+	info.setAttribute("aria-hidden", "true");
+	info.textContent = "i";
+	btn.appendChild(info);
+
+	const top = document.createElement("div");
+	top.className = "picker-card-top";
+	const title = document.createElement("span");
+	title.className = "picker-card-title";
+	title.textContent = course.title;
+	top.appendChild(title);
+	btn.appendChild(top);
+
+	const meta = document.createElement("div");
+	meta.className = "picker-card-meta";
+	const codeEl = document.createElement("code");
+	codeEl.textContent = code;
+	meta.appendChild(codeEl);
+	meta.appendChild(document.createTextNode(` · ${course.units}u`));
+	if (course.specialization) {
+		const specChip = document.createElement("span");
+		specChip.className = "chip chip-accent";
+		specChip.textContent = _getSpecLabel(course.specialization);
+		meta.appendChild(specChip);
+	}
+	btn.appendChild(meta);
+
+	const status = document.createElement("div");
+	status.className = "picker-card-status";
+
+	if (item.isSelected) {
+		const chip = document.createElement("span");
+		chip.className = "chip chip-met";
+		chip.textContent = "Selected";
+		status.appendChild(chip);
+	} else if (item.isDup) {
+		const span = document.createElement("span");
+		span.textContent = "Already chosen in another slot.";
+		status.appendChild(span);
+	} else if (item.unmet.length > 0) {
+		const span = document.createElement("span");
+		const label = document.createElement("span");
+		label.className = "needs-label";
+		label.textContent = "Needs: ";
+		span.appendChild(label);
+		span.appendChild(
+			document.createTextNode(item.unmet.map((p) => p.title).join(", ")),
+		);
+		status.appendChild(span);
+	}
+
+	btn.appendChild(status);
+	return btn;
+}
+
+// ─── SVG / UI helpers ────────────────────────────────────────────────────────
+
+// Builds an inline SVG icon from part descriptors ({ tag, attrs }).
+function makeSvg(parts, strokeWidth = 2.5) {
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("fill", "none");
+	svg.setAttribute("stroke", "currentColor");
+	svg.setAttribute("stroke-width", String(strokeWidth));
+	svg.setAttribute("stroke-linecap", "round");
+	svg.setAttribute("stroke-linejoin", "round");
+	for (const part of parts) {
+		const el = document.createElementNS("http://www.w3.org/2000/svg", part.tag);
+		for (const [k, v] of Object.entries(part.attrs)) el.setAttribute(k, v);
+		svg.appendChild(el);
+	}
+	return svg;
+}
+
+function makeIcon(pathD) {
+	return makeSvg([{ tag: "path", attrs: { d: pathD } }]);
+}
+
+function makeModalCloseButton() {
+	const btn = document.createElement("button");
+	btn.className = "modal-close";
+	btn.dataset.action = "close-modal";
+	btn.setAttribute("aria-label", "Close");
+	btn.textContent = "Close";
+	return btn;
 }
