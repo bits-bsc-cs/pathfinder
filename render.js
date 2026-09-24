@@ -1,9 +1,5 @@
-// render.js — DOM rendering. Reads STATE + CURRICULUM, writes DOM. Never mutates STATE.
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// All course codes currently "in the path": every selection + every fixed course
-// from all revealed semesters.
 function getCoursesInPath() {
   const codes = new Set(Object.values(STATE.selections));
   for (const semNum of STATE.revealedSemesters) {
@@ -15,7 +11,6 @@ function getCoursesInPath() {
   return codes;
 }
 
-// Returns [{ code, title, met }] for every prereq of a course (explicit + implicit).
 function getPrereqStatus(courseCode) {
   const inPath = getCoursesInPath();
   const prereqs  = CURRICULUM.courses[courseCode]?.prereqs ?? [];
@@ -27,8 +22,6 @@ function getPrereqStatus(courseCode) {
   }));
 }
 
-// Returns true if the course selected for slotKey is depended on by another
-// selection — meaning swapping it would break a prereq chain.
 function isSlotLocked(slotKey) {
   const currentSelection = STATE.selections[slotKey];
   if (!currentSelection) return false;
@@ -38,7 +31,6 @@ function isSlotLocked(slotKey) {
   return others.some(code => (CURRICULUM.courses[code]?.prereqs ?? []).includes(currentSelection));
 }
 
-// Returns true if courseCode is already chosen in a different slot.
 function isDuplicateInOtherSlot(courseCode, slotKey) {
   for (const [k, v] of Object.entries(STATE.selections)) {
     if (k !== slotKey && v === courseCode) return true;
@@ -46,7 +38,6 @@ function isDuplicateInOtherSlot(courseCode, slotKey) {
   return false;
 }
 
-// Returns { courses, tabType } for the given slot key.
 function getPoolForSlot(slotKey) {
   if (
     slotKey === 'DISCIPLINE_ELECTIVE_1' ||
@@ -87,7 +78,6 @@ function getPoolForSlot(slotKey) {
     return { courses: CURRICULUM.disciplineElectives, tabType: 'discipline' };
   }
 
-  // Optional slots — pull choices from the semester definition.
   for (const [, semDef] of Object.entries(CURRICULUM.semesters)) {
     for (const opt of semDef.optionals || []) {
       if (opt.slotKey === slotKey) return { courses: opt.choices, tabType: 'none' };
@@ -97,7 +87,6 @@ function getPoolForSlot(slotKey) {
   return { courses: [], tabType: 'none' };
 }
 
-// Fades out sidebar content, calls renderFn, then fades back in.
 function swapSidebarContent(renderFn) {
   const content = document.getElementById('sidebar-content');
   if (!content) { renderFn(); return; }
@@ -108,10 +97,6 @@ function swapSidebarContent(renderFn) {
   }, 200);
 }
 
-
-// ─── Tree ─────────────────────────────────────────────────────────────────────
-
-// Full tree re-render. If animateSemester is set, that block gets the staggered reveal.
 function renderTree(animateSemester = null) {
   const treeEl = document.getElementById('tree');
   if (!treeEl) return;
@@ -126,7 +111,6 @@ function renderTree(animateSemester = null) {
   const existingFork = treeEl.querySelector('#fork-container');
   if (existingFork) existingFork.remove();
 
-  // Sems 1–6 first, then the fork visual, then Sems 7–8
   for (const semNum of STATE.revealedSemesters) {
     if (semNum <= 6) treeEl.appendChild(renderSemesterBlock(semNum, semNum === animateSemester));
   }
@@ -140,7 +124,6 @@ function renderTree(animateSemester = null) {
   updateContinueButton();
 }
 
-// Builds a semester block element. animate=true triggers the staggered reveal.
 function renderSemesterBlock(semNum, animate) {
   const semDef = CURRICULUM.semesters[semNum];
   if (!semDef) return document.createElement('div');
@@ -151,7 +134,6 @@ function renderSemesterBlock(semNum, animate) {
 
   if (!animate) block.classList.add('no-animate', 'is-revealed');
 
-  // Running unit total across all revealed semesters up to and including this one.
   const cumulative = STATE.revealedSemesters
     .filter(n => n <= semNum)
     .reduce((sum, n) => sum + (CURRICULUM.semesters[n]?.units ?? 0), 0);
@@ -203,7 +185,7 @@ function renderSemesterBlock(semNum, animate) {
   block.appendChild(subtree);
 
   if (animate) {
-    // Double rAF ensures the browser has painted the initial hidden state before transitioning.
+    
     requestAnimationFrame(() => {
       requestAnimationFrame(() => block.classList.add('is-revealed'));
     });
@@ -212,7 +194,6 @@ function renderSemesterBlock(semNum, animate) {
   return block;
 }
 
-// Builds a course row for a fixed course.
 function renderCourseNode(courseCode, slotKey, nodeIndex, animate) {
   const course = CURRICULUM.courses[courseCode];
   if (!course) return document.createElement('div');
@@ -262,7 +243,6 @@ function renderCourseNode(courseCode, slotKey, nodeIndex, animate) {
   return row;
 }
 
-// Builds a slot node row — filled or empty, optional or elective.
 function renderSlotNode(slotKey, slotLabel, slotType, nodeIndex, animate) {
   const selectedCode = STATE.selections[slotKey];
   const row = document.createElement('div');
@@ -314,7 +294,7 @@ function renderSlotNode(slotKey, slotLabel, slotType, nodeIndex, animate) {
       const depNames = dependents.map(c => CURRICULUM.courses[c]?.title ?? c).join(', ');
       const tooltip = document.createElement('div');
       tooltip.className = 'tooltip-box';
-      tooltip.textContent = `Can't change — ${depNames} in your path depends on this.`;
+      tooltip.textContent = `Locked — ${depNames} needs this.`;
       tooltipWrapper.appendChild(node);
       tooltipWrapper.appendChild(tooltip);
       row.appendChild(tooltipWrapper);
@@ -351,7 +331,6 @@ function renderSlotNode(slotKey, slotLabel, slotType, nodeIndex, animate) {
   return row;
 }
 
-// Renders the fork visual: BSc branch + dashed Hons trunk extension + Hons branch.
 function renderForkVisual(treeEl) {
   const forkEl = document.createElement('div');
   forkEl.id = 'fork-container';
@@ -368,7 +347,7 @@ function renderForkVisual(treeEl) {
 
   const bscLabel = document.createElement('span');
   bscLabel.className = 'terminal-label';
-  bscLabel.textContent = 'End — BSc Computer Science';
+  bscLabel.textContent = 'End of BSc Computer Science';
 
   bscTerminal.appendChild(bscDot);
   bscTerminal.appendChild(bscLabel);
@@ -390,7 +369,7 @@ function renderForkVisual(treeEl) {
 
   const honsLabel = document.createElement('span');
   honsLabel.className = 'terminal-label';
-  honsLabel.textContent = 'End — BSc (Honours) Computer Science';
+  honsLabel.textContent = 'End of BSc (Honours) Computer Science';
 
   honsTerminal.appendChild(honsDot);
   honsTerminal.appendChild(honsLabel);
@@ -400,7 +379,6 @@ function renderForkVisual(treeEl) {
   treeEl.appendChild(forkEl);
 }
 
-// Builds the inline elective/optional grid below its slot node.
 function renderGrid(slotKey) {
   const { courses, tabType } = getPoolForSlot(slotKey);
   const selectedCode = STATE.selections[slotKey];
@@ -412,10 +390,9 @@ function renderGrid(slotKey) {
 
   const helpText = document.createElement('p');
   helpText.className = 'grid-help-text';
-  helpText.textContent = 'Click on a course to see more about it in the sidebar.';
+  helpText.textContent = 'Click a course for details.';
   gridEl.appendChild(helpText);
 
-  // Restore the previously active tab from the DOM if the grid is being re-rendered.
   let activeTab = 'All';
   const existingGrid = document.querySelector(`.grid-picker[data-slot="${slotKey}"]`);
   if (existingGrid) {
@@ -469,12 +446,12 @@ function renderGrid(slotKey) {
     if (isDuplicate) {
       card.classList.add('is-duplicate');
       card.setAttribute('aria-disabled', 'true');
-      card.setAttribute('aria-label', `${course.title} — Already chosen in another slot.`);
+      card.setAttribute('aria-label', `${course.title}. Already chosen in another slot.`);
     } else if (hasUnmetPrereqs) {
       card.classList.add('is-locked-prereq');
       card.setAttribute('aria-disabled', 'true');
       const missing = prereqStatus.filter(p => !p.met).map(p => p.title).join(', ');
-      card.setAttribute('aria-label', `${course.title} — Missing prerequisites: ${missing}`);
+      card.setAttribute('aria-label', `${course.title}. Missing prerequisites are ${missing}`);
     }
 
     const titleEl = document.createElement('div');
@@ -495,7 +472,7 @@ function renderGrid(slotKey) {
       const missingNames = prereqStatus.filter(p => !p.met).map(p => p.title).join(', ');
       const labelSpan = document.createElement('span');
       labelSpan.className = 'tooltip-missing-label';
-      labelSpan.textContent = 'Missing: ';
+      labelSpan.textContent = 'Missing ';
       const coursesSpan = document.createElement('span');
       coursesSpan.className = 'tooltip-missing-courses';
       coursesSpan.textContent = missingNames;
@@ -514,12 +491,10 @@ function renderGrid(slotKey) {
 
   gridEl.appendChild(cardsEl);
 
-  // Defer is-open so the CSS opacity transition actually plays.
   requestAnimationFrame(() => gridEl.classList.add('is-open'));
   return gridEl;
 }
 
-// Filters a course list by the active tab label.
 function filterCoursesByTab(courses, activeTab, tabType) {
   if (activeTab === 'All') return courses;
   if (activeTab === 'Open Elective') return courses.filter(code => CURRICULUM.openElectives.includes(code));
@@ -543,9 +518,6 @@ function filterCoursesByTab(courses, activeTab, tabType) {
   return courses;
 }
 
-
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
-
 function renderWelcome() {
   const content = document.getElementById('sidebar-content');
   if (!content) return;
@@ -559,9 +531,7 @@ function renderWelcome() {
 
   const p = document.createElement('p');
   p.textContent =
-    'This tool helps you visualize your academic path through the BITS Pilani BSc Computer ' +
-    'Science program. Click through semesters, pick your electives, and see how your choices ' +
-    'shape your degree. Your progress is saved automatically.';
+    'Plan your BSc CS degree. Pick electives, track prerequisites, see your path. Saved automatically.';
 
   el.appendChild(h2);
   el.appendChild(p);
@@ -605,7 +575,7 @@ function _renderSemesterOverview(semNum) {
   el.appendChild(header);
 
   if (semDef.fixed.length > 0) {
-    const section = _makeOverviewSection('Core / Fixed');
+    const section = _makeOverviewSection('Core');
     for (const code of semDef.fixed) {
       const course = CURRICULUM.courses[code];
       const item = document.createElement('div');
@@ -634,7 +604,7 @@ function _renderSemesterOverview(semNum) {
         units.textContent = course ? `${course.units}u` : '';
         item.appendChild(units);
       } else {
-        item.textContent = `${opt.label} — not yet chosen`;
+        item.textContent = `${opt.label}, not picked`;
       }
       section.querySelector('.sem-overview-items').appendChild(item);
     }
@@ -655,7 +625,7 @@ function _renderSemesterOverview(semNum) {
         units.textContent = course ? `${course.units}u` : '';
         item.appendChild(units);
       } else {
-        item.textContent = `${elec.label} — not yet chosen`;
+        item.textContent = `${elec.label}, not picked`;
       }
       section.querySelector('.sem-overview-items').appendChild(item);
     }
@@ -668,9 +638,7 @@ function _renderSemesterOverview(semNum) {
     const note = document.createElement('p');
     note.className = 'text-sm text-muted';
     note.textContent =
-      'The Study Project (BCS ZC241T) is a 5-unit required course in Semester V. ' +
-      'You will identify a software problem, study its scope, and submit a project proposal. ' +
-      'It is a prerequisite for the Semester VI Project.';
+      'Study Project: pick a problem, write a proposal. Required before Semester VI Project.';
     panel.appendChild(note);
     el.appendChild(panel);
   }
@@ -681,8 +649,7 @@ function _renderSemesterOverview(semNum) {
     const note = document.createElement('p');
     note.className = 'text-sm text-muted';
     note.textContent =
-      'Once you complete all Semester VI choices, you will decide whether to finish with ' +
-      'a BSc or continue for two more semesters toward a BSc Honours degree.';
+      'After Semester VI: finish with BSc, or continue for Honours.';
     panel.appendChild(note);
     el.appendChild(panel);
   }
@@ -708,7 +675,6 @@ function _makeOverviewSection(title) {
   return section;
 }
 
-// Shows full course info. If slotKey is provided, the SELECT button is shown.
 function renderCourseInfo(courseCode, slotKey) {
   STATE.activeSidebarContent = { type: 'course-info', courseCode, slotKey: slotKey || null };
   swapSidebarContent(() => _renderCourseInfo(courseCode, slotKey));
@@ -721,7 +687,7 @@ function _renderCourseInfo(courseCode, slotKey) {
 
   const course = CURRICULUM.courses[courseCode];
   if (!course) {
-    content.textContent = `Unknown course: ${courseCode}`;
+    content.textContent = `Unknown course ${courseCode}`;
     return;
   }
 
@@ -802,7 +768,6 @@ function _renderCourseInfo(courseCode, slotKey) {
   updateSpecTrackerVisibility();
 }
 
-// Grid prompt shown when the grid is open but no card has been clicked yet.
 function renderGridPrompt(slotKey, slotLabel) {
   STATE.activeSidebarContent = { type: 'grid-prompt', slotKey };
   swapSidebarContent(() => _renderGridPrompt(slotKey, slotLabel));
@@ -817,10 +782,10 @@ function _renderGridPrompt(slotKey, slotLabel) {
   el.className = 'grid-prompt';
 
   const h2 = document.createElement('h2');
-  h2.textContent = 'Click any course to see its details';
+  h2.textContent = 'Pick a course';
 
   const p = document.createElement('p');
-  p.textContent = `You are picking: ${slotLabel}`;
+  p.textContent = slotLabel;
 
   el.appendChild(h2);
   el.appendChild(p);
@@ -857,9 +822,7 @@ function _renderForkUI() {
   bscH3.textContent = 'Complete with BSc';
 
   const bscP = document.createElement('p');
-  bscP.textContent =
-    'Finish your degree as Bachelor of Science in Computer Science, BITS Pilani. ' +
-    'You will have completed 6 semesters and accumulated all required units.';
+  bscP.textContent = 'Graduate with a BSc in Computer Science after 6 semesters.';
 
   const bscBtn = document.createElement('button');
   bscBtn.dataset.action = 'fork-choice';
@@ -879,15 +842,12 @@ function _renderForkUI() {
   honsH3.textContent = 'Continue to BSc Honours';
 
   const honsP = document.createElement('p');
-  honsP.textContent =
-    'Continue for two additional semesters (VII and VIII) toward a Bachelor of Science ' +
-    '(Honours) in Computer Science, BITS Pilani. Choose discipline electives in AIML, ' +
-    'Cloud Computing, or Full-Stack Development to earn a specialization.';
+  honsP.textContent = 'Two more semesters (VII–VIII). Earn a specialization in AIML, Cloud, or Full-Stack.';
 
   const honsBtn = document.createElement('button');
   honsBtn.dataset.action = 'fork-choice';
   honsBtn.dataset.pathtype = 'BSCH';
-  honsBtn.textContent = STATE.pathType === 'BSCH' ? '✓ Hons chosen' : 'Continue to BSc Hons.';
+  honsBtn.textContent = STATE.pathType === 'BSCH' ? '✓ Hons chosen' : 'Continue to BSc Hons';
   honsBtn.disabled = STATE.pathType === 'BSCH';
 
   honsOption.appendChild(honsH3);
@@ -945,7 +905,7 @@ function _renderEndCard(pathType) {
   const choicesSection = document.createElement('div');
   choicesSection.className = 'end-card-section';
   const choicesH3 = document.createElement('h3');
-  choicesH3.textContent = 'Your Choices';
+  choicesH3.textContent = 'Choices';
   choicesSection.appendChild(choicesH3);
 
   for (const [, code] of Object.entries(STATE.selections)) {
@@ -974,7 +934,7 @@ function _renderEndCard(pathType) {
     if (spec) {
       const specEl = document.createElement('div');
       specEl.className = 'end-specialization mt-lg';
-      specEl.textContent = `Specialization: ${spec.label} ✓`;
+      specEl.textContent = `Specialization ${spec.label} ✓`;
       el.appendChild(specEl);
     }
   }
@@ -1054,9 +1014,6 @@ function updateSpecTrackerVisibility() {
   if (show) renderSpecializationTracker();
 }
 
-
-// ─── Continue Button ──────────────────────────────────────────────────────────
-
 function updateContinueButton() {
   const wrapper = document.getElementById('continue-btn-wrapper');
   const btn = document.getElementById('continue-btn');
@@ -1089,7 +1046,7 @@ function updateContinueButton() {
 
   if (!complete) {
     const missing = _getMissingSlots(STATE.currentSemester);
-    hint.textContent = missing.length > 0 ? `Still needed: ${missing.join(', ')}` : '';
+    hint.textContent = missing.length > 0 ? `Still needed ${missing.join(', ')}` : '';
   } else {
     hint.textContent = '';
   }
@@ -1122,9 +1079,6 @@ function _getMissingSlots(semNum) {
   return missing;
 }
 
-
-// ─── Elective Counter ─────────────────────────────────────────────────────────
-
 function _updateElectiveCounter(semNum) {
   const counter = document.getElementById('elective-counter');
   if (!counter) return;
@@ -1137,9 +1091,6 @@ function _updateElectiveCounter(semNum) {
     counter.textContent = '';
   }
 }
-
-
-// ─── Total Units & Specialization ────────────────────────────────────────────
 
 function _computeTotalUnits() {
   let total = 0;
@@ -1161,9 +1112,6 @@ function _determineSpecialization() {
   }
   return null;
 }
-
-
-// ─── App Entry Point ──────────────────────────────────────────────────────────
 
 function renderApp() {
   applyTheme();
@@ -1195,7 +1143,7 @@ function renderApp() {
         _renderSemesterOverview(STATE.currentSemester);
       }
     } else {
-      // Reconstruct sidebar after page reload.
+      
       if (STATE.forkUIShown && !STATE.forkChosen) {
         _renderForkUI();
       } else if (STATE.forkChosen && STATE.pathType === 'BSC') {

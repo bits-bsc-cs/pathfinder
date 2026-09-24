@@ -1,4 +1,4 @@
-// app.js — event wiring and application logic
+
 
 function initApp() {
   loadState();
@@ -27,7 +27,7 @@ function attachEventListeners() {
 }
 
 function handleViewClick(e) {
-  // Close grid if click lands outside it and outside its trigger slot
+  
   if (STATE.activeGridSlot) {
     const clickedGrid = e.target.closest('.grid-picker');
     const clickedSlotNode = e.target.closest(`[data-slot="${STATE.activeGridSlot}"]`);
@@ -97,10 +97,6 @@ function handleViewKeydown(e) {
   target.click();
 }
 
-/**
- * Double-click a grid card to instantly select it.
- * Locked and duplicate cards are ignored.
- */
 function handleViewDblClick(e) {
   const card = e.target.closest('[data-action="grid-card"]');
   if (!card) return;
@@ -191,7 +187,6 @@ function onGridCardClick(courseCode, slotKey) {
   renderCourseInfo(courseCode, slotKey);
 }
 
-// Re-renders grid cards in-place when a filter tab is clicked.
 function onGridTabClick(tab, slotKey) {
   const existingGrid = document.querySelector(`.grid-picker[data-slot="${slotKey}"]`);
   if (!existingGrid) return;
@@ -257,7 +252,7 @@ function onGridTabClick(tab, slotKey) {
       const missingNames = prereqStatus.filter(p => !p.met).map(p => p.title).join(', ');
       const labelSpan = document.createElement('span');
       labelSpan.className = 'tooltip-missing-label';
-      labelSpan.textContent = 'Missing: ';
+      labelSpan.textContent = 'Missing ';
       const coursesSpan = document.createElement('span');
       coursesSpan.className = 'tooltip-missing-courses';
       coursesSpan.textContent = missingNames;
@@ -298,7 +293,6 @@ function handleContinue() {
 
   if (!isSemesterComplete(STATE.currentSemester)) return;
 
-  // Sem 6: show fork UI first if not yet shown
   if (STATE.currentSemester === 6 && !STATE.forkUIShown && !STATE.forkChosen) {
     STATE.forkUIShown = true;
     saveState();
@@ -308,7 +302,6 @@ function handleContinue() {
     return;
   }
 
-  // Programme complete at Sem 8
   if (STATE.currentSemester === 8) {
     STATE.forkChosen = true;
     saveState();
@@ -318,7 +311,6 @@ function handleContinue() {
 
   const nextSem = STATE.currentSemester + 1;
 
-  // BSc path ends after Sem 6
   if (nextSem > 6 && STATE.pathType === 'BSC') {
     renderEndCard('BSC');
     return;
@@ -411,7 +403,6 @@ function onResetCancel() {
   if (confirm) confirm.classList.remove('is-visible');
 }
 
-// Finds the human-readable label for a slot key.
 function _getSlotLabel(slotKey) {
   for (const [, semDef] of Object.entries(CURRICULUM.semesters)) {
     for (const opt of semDef.optionals || []) {

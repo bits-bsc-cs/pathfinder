@@ -1,19 +1,4 @@
-/* style.css — BITS BSc CS Curriculum Path Visualizer
-   Section order (Rule 13):
-   1.  CSS custom properties
-   2.  Reset / base
-   3.  Layout
-   4.  Tree / trunk / branch
-   5.  Node types
-   6.  Grid picker
-   7.  Sidebar content
-   8.  Badges and tooltips
-   9.  Continue button
-   10. Utility classes
-   11. Animations / transitions
-*/
 
-/* ─── 1. CSS Custom Properties ──────────────────────────────────────────────── */
 
 :root {
   --color-bg:               #ffffff;
@@ -43,7 +28,8 @@
   --sidebar-width: 35%;
   --view-width:    65%;
 
-  --color-select-hover: limegreen;
+  --color-accent-blue:      #2b2b88;
+  --color-on-accent:        #ffffff;
   --color-honours-underline: rgba(50, 205, 50, 0.5);
 }
 
@@ -55,10 +41,9 @@ body.theme-dark {
   --color-accent-positive:  #4caf50;
   --color-accent-negative:  #ff5555;
   --color-accent-locked:    #555555;
+  --color-accent-blue:      #9a9ae8;
+  --color-on-accent:        #12122b;
 }
-
-
-/* ─── 2. Reset / Base ────────────────────────────────────────────────────────── */
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -104,7 +89,6 @@ a {
   color: var(--color-ink);
 }
 
-/* Scrollbars — thin, Firefox + WebKit */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-ink-faint) transparent;
@@ -123,7 +107,6 @@ a {
   background-color: var(--color-ink-faint);
 }
 
-/* Mobile banner */
 #mobile-banner {
   display: none;
   padding: var(--spacing-md);
@@ -139,16 +122,12 @@ a {
   }
 }
 
-
-/* ─── 3. Layout ──────────────────────────────────────────────────────────────── */
-
 #app {
   display: flex;
   height: 100vh;
   overflow: hidden;
 }
 
-/* ── Left view pane ── */
 #view {
   width: var(--view-width);
   display: flex;
@@ -173,11 +152,13 @@ a {
   font-size: var(--font-size-sm);
   color: var(--color-ink-muted);
   text-decoration: underline;
+  text-decoration-color: var(--color-accent-blue);
+  text-decoration-thickness: 1.5px;
   cursor: pointer;
 }
 
 #view-source-link:hover {
-  color: var(--color-ink);
+  color: var(--color-accent-blue);
 }
 
 #view-header h1 {
@@ -196,15 +177,24 @@ a {
   flex: 1;
   overflow-y: auto;
   padding: var(--spacing-lg) var(--spacing-xl);
-  padding-bottom: 80px; /* room for continue button */
+  padding-bottom: 80px; 
 }
 
-/* ── Right sidebar pane ── */
 #sidebar {
   width: var(--sidebar-width);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  
+  --font-size-sm:   0.875rem;
+  --font-size-base: 1rem;
+  --font-size-md:   1.15rem;
+  --font-size-lg:   1.5rem;
+  --font-size-xl:   1.75rem;
+}
+
+#sidebar button {
+  font-size: 1.2rem;
 }
 
 #sidebar-topbar {
@@ -240,7 +230,7 @@ a {
   flex-shrink: 0;
   border-top: var(--line-sub) solid var(--color-ink-faint);
   padding: var(--spacing-sm) var(--spacing-md);
-  display: none; /* shown only during Sems 7–8 */
+  display: none; 
 }
 
 #sidebar-spec-tracker.is-visible {
@@ -265,7 +255,7 @@ a {
 #select-btn {
   padding: 10px 24px;
   font-size: 1.1rem;
-  display: none; /* shown only when a selectable course is in sidebar */
+  display: none; 
 }
 
 #select-btn.is-visible {
@@ -273,28 +263,23 @@ a {
 }
 
 #select-btn.is-visible:hover {
-  background-color: var(--color-select-hover);
-  color: #000000;
+  background-color: var(--color-accent-blue);
+  border-color: var(--color-accent-blue);
+  color: var(--color-on-accent);
   font-weight: bold;
-  text-decoration: underline;
   opacity: 1;
 }
-
-
-/* ─── 4. Tree / Trunk / Branch ───────────────────────────────────────────────── */
 
 #tree {
   position: relative;
 }
 
-/* Start state — no trunk, just the START button */
 #start-node {
   display: flex;
   justify-content: flex-start;
   padding-left: var(--spacing-sm);
 }
 
-/* The trunk: vertical line running down the left of the tree area */
 #trunk-line {
   position: absolute;
   top: 0;
@@ -304,7 +289,6 @@ a {
   background-color: var(--color-ink);
 }
 
-/* Fork visual: BSC terminal branch + Hons continuation */
 #fork-container {
   position: relative;
   margin-left: 0;
@@ -333,7 +317,7 @@ a {
 }
 
 .fork-hons-indicator {
-  /* dashed extension of the trunk indicating Hons path above the fork */
+  
   position: absolute;
   left: 0;
   bottom: 100%;
@@ -348,7 +332,6 @@ a {
   );
 }
 
-/* Each semester block */
 .semester-block {
   position: relative;
   margin-bottom: 80px;
@@ -363,25 +346,22 @@ a {
   opacity: 1;
 }
 
-/* Horizontal connector from trunk to semester label */
 .semester-block::before {
   content: '';
   position: absolute;
-  top: 12px; /* centers on the semester label node */
+  top: 12px; 
   left: 0;
   width: var(--spacing-xl);
   height: var(--line-branch);
   background-color: var(--color-ink);
 }
 
-/* Sub-trunk: vertical line inside the semester block */
 .semester-subtree {
   position: relative;
   padding-left: var(--spacing-xl);
   border-left: var(--line-sub) solid var(--color-ink);
 }
 
-/* Individual course connector */
 .course-row {
   position: relative;
   margin-bottom: var(--spacing-sm);
@@ -398,15 +378,10 @@ a {
   transform: translateY(-50%);
 }
 
-/* For the last item — prevent the sub-trunk from extending past it */
 .semester-subtree > .course-row:last-child {
-  /* no special treatment needed; overflow:hidden on .semester-block handles it */
+  
 }
 
-
-/* ─── 5. Node Types ──────────────────────────────────────────────────────────── */
-
-/* ── Semester label node ── */
 .semester-label-node {
   display: inline-flex;
   flex-direction: column;
@@ -432,7 +407,6 @@ a {
   color: var(--color-ink-muted);
 }
 
-/* ── Fixed / mandatory course node ── */
 .node {
   border: var(--line-sub) solid var(--color-ink);
   padding: 8px 14px;
@@ -461,7 +435,6 @@ a {
   margin-top: 2px;
 }
 
-/* ── Optional / Elective slot node (unfilled) ── */
 .node.node-slot {
   border-style: dashed;
   color: var(--color-ink-muted);
@@ -477,7 +450,6 @@ a {
   margin-top: 2px;
 }
 
-/* ── Optional / Elective slot node (filled) ── */
 .node.node-slot.is-filled {
   border-style: solid;
   color: var(--color-ink);
@@ -494,14 +466,12 @@ a {
   font-style: italic;
 }
 
-/* ── Project node (double border) ── */
 .node.node-project {
   border: var(--line-sub) solid var(--color-ink);
   outline: var(--line-sub) solid var(--color-ink);
   outline-offset: 3px;
 }
 
-/* ── Terminal / End node ── */
 .terminal-node {
   display: flex;
   align-items: center;
@@ -532,21 +502,16 @@ a {
   font-size: var(--font-size-base);
 }
 
-/* ── Node active (grid open) state ── */
 .node.is-active-grid {
   outline: var(--line-branch) solid var(--color-ink);
   outline-offset: 3px;
 }
 
-/* ── Locked slot tooltip trigger ── */
 .node.is-locked {
   cursor: default;
   color: var(--color-accent-locked);
   border-color: var(--color-accent-locked);
 }
-
-
-/* ─── 6. Grid Picker ─────────────────────────────────────────────────────────── */
 
 .grid-picker {
   margin-top: var(--spacing-md);
@@ -560,7 +525,6 @@ a {
   opacity: 1;
 }
 
-/* Help text shown at the top of every grid */
 .grid-help-text {
   font-size: var(--font-size-sm);
   color: var(--color-ink-muted);
@@ -568,7 +532,6 @@ a {
   margin-bottom: var(--spacing-sm);
 }
 
-/* Filter tabs */
 .grid-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -597,14 +560,12 @@ a {
   color: var(--color-ink);
 }
 
-/* Cards grid */
 .grid-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--spacing-sm);
 }
 
-/* Individual grid card */
 .grid-card {
   border: var(--line-sub) solid var(--color-ink);
   padding: 8px 14px;
@@ -626,7 +587,7 @@ a {
 .grid-card.is-locked-prereq {
   opacity: 0.4;
   cursor: not-allowed;
-  pointer-events: none; /* wrapping div still allows tooltip hover */
+  pointer-events: none; 
 }
 
 .grid-card.is-duplicate {
@@ -647,21 +608,15 @@ a {
   margin-top: 2px;
 }
 
-/* Wrapper div that keeps pointer events alive for tooltip even when card is locked */
 .grid-card-wrapper {
   position: relative;
 }
 
-
-/* ─── 7. Sidebar Content ─────────────────────────────────────────────────────── */
-
-/* ── Sidebar fade transition ── */
 #sidebar-content.is-fading {
   opacity: 0;
   transform: translateY(4px);
 }
 
-/* ── Welcome / start card ── */
 .sidebar-welcome h2 {
   font-size: var(--font-size-lg);
   font-weight: normal;
@@ -674,7 +629,6 @@ a {
   line-height: 1.6;
 }
 
-/* ── Course info panel ── */
 .course-info-title {
   font-size: var(--font-size-xl);
   font-weight: normal;
@@ -740,7 +694,6 @@ a {
   color: var(--color-accent-negative);
 }
 
-/* ── Semester overview panel ── */
 .sem-overview-header {
   margin-bottom: var(--spacing-md);
 }
@@ -784,7 +737,6 @@ a {
   font-style: italic;
 }
 
-/* ── Grid prompt panel ── */
 .grid-prompt {
   padding: var(--spacing-sm) 0;
 }
@@ -801,7 +753,6 @@ a {
   line-height: 1.5;
 }
 
-/* ── Fork UI panel ── */
 .fork-ui h2 {
   font-size: var(--font-size-lg);
   font-weight: normal;
@@ -828,7 +779,12 @@ a {
 }
 
 .fork-option.is-chosen {
-  border-color: var(--color-ink);
+  border-color: var(--color-accent-positive);
+}
+
+.fork-option.is-chosen button {
+  border-color: var(--color-accent-positive);
+  color: var(--color-accent-positive);
 }
 
 .fork-option button {
@@ -836,7 +792,6 @@ a {
   padding: var(--spacing-xs) var(--spacing-md);
 }
 
-/* ── End card panel ── */
 .end-card h2 {
   font-size: var(--font-size-base);
   font-weight: normal;
@@ -876,7 +831,11 @@ a {
   cursor: pointer;
   padding: 0;
   text-decoration: underline;
-  text-decoration-color: var(--color-ink-faint);
+  text-decoration-color: var(--color-accent-blue);
+}
+
+.end-card-switch-btn:hover {
+  color: var(--color-accent-blue);
 }
 
 .end-card-section {
@@ -908,7 +867,6 @@ a {
   line-height: 1.5;
 }
 
-/* ── Reset confirmation inline UI ── */
 #reset-confirm {
   display: none;
   align-items: center;
@@ -920,15 +878,20 @@ a {
 }
 
 #reset-btn-initial {
-  /* default state */
+  
 }
 
 #reset-btn-initial.is-hidden {
   display: none;
 }
 
-
-/* ─── 8. Badges and Tooltips ─────────────────────────────────────────────────── */
+#theme-toggle-btn:hover,
+#reset-btn-initial:hover,
+#reset-confirm button:hover {
+  background-color: var(--color-ink);
+  color: var(--color-bg);
+  opacity: 1;
+}
 
 .prereq-badge-inline {
   display: inline-block;
@@ -944,7 +907,6 @@ a {
   color: var(--color-accent-negative);
 }
 
-/* Node-level prereq badge rows (below the node) */
 .node-badges {
   margin-top: 3px;
   display: flex;
@@ -975,7 +937,6 @@ a {
   color: var(--color-ink-muted);
 }
 
-/* Tooltip container */
 .tooltip-wrapper {
   position: relative;
   display: inline-block;
@@ -1003,9 +964,6 @@ a {
 .tooltip-wrapper:focus-within .tooltip-box {
   opacity: 1;
 }
-
-
-/* ─── 9. Continue Button ─────────────────────────────────────────────────────── */
 
 #continue-btn-wrapper {
   position: absolute;
@@ -1050,7 +1008,15 @@ a {
   padding: 10px 28px;
   font-size: 1.1rem;
   border-width: var(--line-sub);
+  border-color: var(--color-accent-blue);
+  color: var(--color-accent-blue);
   flex-shrink: 0;
+}
+
+#continue-btn:not(:disabled):hover {
+  background-color: var(--color-accent-blue);
+  color: var(--color-on-accent);
+  opacity: 1;
 }
 
 #continue-btn:disabled {
@@ -1065,9 +1031,6 @@ a {
   color: var(--color-ink-muted);
   flex: 1;
 }
-
-
-/* ─── 10. Utility Classes ────────────────────────────────────────────────────── */
 
 .visually-hidden {
   position: absolute;
@@ -1105,7 +1068,6 @@ a {
 .mb-sm { margin-bottom: var(--spacing-sm); }
 .mb-md { margin-bottom: var(--spacing-md); }
 
-/* Specialization tracker row */
 .spec-row {
   display: flex;
   align-items: center;
@@ -1169,41 +1131,31 @@ a {
   color: var(--color-ink-muted);
 }
 
-
-/* ─── 11. Animations / Transitions ──────────────────────────────────────────── */
-
-/* Semester block reveal: max-height + opacity transition */
 .semester-block {
   transition: max-height 0.3s ease, opacity 0.3s ease;
 }
 
-/* For already-revealed semesters (no animation): add immediately, skip transition */
 .semester-block.no-animate {
   transition: none;
 }
 
-/* Individual course node fade-in (staggered via inline transition-delay) */
 .node,
 .terminal-node {
   transition: opacity 0.2s ease;
 }
 
-/* Sidebar content swap */
 #sidebar-content {
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-/* Grid picker open/close */
 .grid-picker {
   transition: opacity 0.2s ease;
 }
 
-/* Tooltip */
 .tooltip-box {
   transition: opacity 0.1s ease;
 }
 
-/* Styled parts of a missing-prereq tooltip */
 .tooltip-missing-label {
   text-decoration: underline;
 }
@@ -1212,4 +1164,3 @@ a {
   color: var(--color-accent-negative);
 }
 
-/* Theme toggle transition on body (bg + text) already declared in body rule above */

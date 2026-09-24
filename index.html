@@ -3,35 +3,30 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BITS BSc CS — Curriculum Path Visualizer</title>
+  <title>BITS BSc CS Curriculum Path Visualizer</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="theme-light">
 
-  <!-- Mobile notice -->
   <div id="mobile-banner" aria-live="polite">
-    This tool is best experienced on a desktop browser.
+    Best on desktop.
   </div>
 
   <div id="app">
 
-    <!-- ─── Left Pane: The View ──────────────────────────────────────── -->
     <div id="view">
 
       <div id="view-header">
         <h1>BSc Computer Science</h1>
-        <p>BITS Pilani — Curriculum Path Visualizer</p>
+        <p>BITS Pilani Curriculum Path Visualizer</p>
         <a id="view-source-link" href="https://github.com/bits-bsc-cs/pathfinder" target="_blank" rel="noopener noreferrer">view source code</a>
       </div>
 
-      <!-- Scrollable tree area -->
       <div id="tree-container">
         <div id="tree">
 
-          <!-- Trunk line (shown once tree starts) -->
           <div id="trunk-line" style="display:none;" aria-hidden="true"></div>
 
-          <!-- Start state: single START button -->
           <div id="start-node" style="display:flex;">
             <div
               class="node"
@@ -44,12 +39,9 @@
             </div>
           </div>
 
-          <!-- Semester blocks injected here by renderTree() -->
-
         </div>
       </div>
 
-      <!-- Sticky continue button at the bottom of the view pane -->
       <div id="continue-btn-wrapper">
         <span id="continue-hint"></span>
         <button id="continue-btn" disabled>Continue</button>
@@ -57,13 +49,9 @@
       </div>
 
     </div>
-    <!-- end #view -->
 
-
-    <!-- ─── Right Pane: The Sidebar ──────────────────────────────────── -->
     <div id="sidebar">
 
-      <!-- Top bar: theme + reset -->
       <div id="sidebar-topbar">
 
         <div id="sidebar-topbar-left">
@@ -75,13 +63,12 @@
         </div>
 
         <div id="sidebar-topbar-right">
-          <!-- Default reset button -->
+          
           <button
             id="reset-btn-initial"
             data-action="reset-btn"
           >Reset Path</button>
 
-          <!-- Inline confirmation (hidden by default) -->
           <div id="reset-confirm" role="group" aria-label="Confirm reset">
             <span class="text-sm text-muted">Are you sure?</span>
             <button data-action="reset-confirm-yes">[ Yes, reset ]</button>
@@ -90,24 +77,20 @@
         </div>
 
       </div>
-      <!-- end #sidebar-topbar -->
 
-      <!-- Scrollable content area -->
       <div
         id="sidebar-content"
         role="region"
         aria-label="Course information"
         aria-live="polite"
       >
-        <!-- Content rendered by render.js -->
+        
       </div>
 
-      <!-- Specialization tracker (visible only during Sems 7–8 Hons path) -->
       <div id="sidebar-spec-tracker" aria-live="polite">
-        <!-- Rendered by renderSpecializationTracker() -->
+        
       </div>
 
-      <!-- Bottom bar: elective counter + SELECT button -->
       <div id="sidebar-bottombar">
         <span id="elective-counter"></span>
         <button
@@ -117,12 +100,9 @@
       </div>
 
     </div>
-    <!-- end #sidebar -->
 
   </div>
-  <!-- end #app -->
 
-  <!-- Script load order: data → state → render → app -->
   <script src="data.js"></script>
   <script src="state.js"></script>
   <script src="render.js"></script>
